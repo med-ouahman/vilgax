@@ -4,7 +4,7 @@
 #include <vector>
 #include <map>
 #include <optional>
-
+#include <variant>
 #include "types.hpp"
 
 namespace config {
@@ -27,15 +27,15 @@ struct location_config {
    string root;
    std::optional<fastcgi_config> fastcgi_conf;
    bool autoindex;
-   vector<string> index;
+   std::vector<string> index;
    
 };
 
 struct server_config {
-   vector<listen_endpoint> listens;
+   std::vector<listen_endpoint> listens;
    string root;
-   vector<location_config> locations;
-   vector<string> server_names;
+   std::vector<location_config> locations;
+   std::vector<string> server_names;
 };
 
 struct runtime_config {
@@ -74,7 +74,7 @@ struct main_config {
    runtime_config       runtime_conf;
    global_http_config   http_conf;
    timeout_http_config  http_timeout_conf;
-   vector<server_config> servers;
+   std::vector<server_config> servers;
 };
 
 }
