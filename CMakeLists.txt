@@ -11,6 +11,7 @@ set(SOURCES
     src/main.cpp
     src/config/config.cpp
     src/config/lexer.cpp
+    src/config/parser.cpp
     src/core/master.cpp
     src/core/server.cpp
     src/core/worker.cpp
@@ -37,5 +38,16 @@ set_target_properties(vilgax PROPERTIES
 # Install target
 install(TARGETS vilgax DESTINATION /usr/local/bin)
 
-# Optional: Enable testing if needed
+# Enable testing
 enable_testing()
+
+# Google Test Framework - use FetchContent to download if not found
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+

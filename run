@@ -1,0 +1,13 @@
+#!/bin/bash
+# Run script for Vilgax - executes the built executable
+
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+EXECUTABLE="$SCRIPT_DIR/build/bin/vilgax"
+
+if [ ! -f "$EXECUTABLE" ]; then
+    echo "Error: vilgax executable not found at $EXECUTABLE"
+    echo "Please build first with: ./build"
+    exit 1
+fi
+
+exec "$EXECUTABLE" "$@"

@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include "parser.hpp"
+#include "lexer.hpp"
 
 namespace core {
 
@@ -44,12 +46,18 @@ bool master::load_config(const std::string& conf) {
 
     if (!err) {
         auto e = err.error();
-        std::cout << "Lexer error: " << config::lexer_error_code_phrase(e.code_) << "line: " << e.line_ << " column: " << e.column_ << std::endl;
+        std::cout << "Lexer error: " << config::lexer_error_code_phrase(e.code_) << " line: " << e.line_ << " column: " << e.column_ << std::endl;
         return false;
     }
 
     auto tokens = lexer_.tokens();
-    for (const auto& t: tokens) config::print_token(t);
+    config::parser parser(tokens);
+    auto result = parser.parse();
+    if (!result) {
+        std::cout << "Parse error\n";
+        return false;
+    }
+
     return true;
 }
 

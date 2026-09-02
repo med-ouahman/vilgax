@@ -12,8 +12,11 @@ namespace config {
 
 enum class char_type {
     whitespace,
+    comment,
+    newline,
     digit,
     alpha,
+    special,
     quote,
     symbol,
     end,
@@ -38,6 +41,7 @@ enum class token_type {
     listen,
     root,
     max_request_line_size,
+    max_headers,
     max_header_size,
     client_body_max_size,
     max_requests_per_connection,
@@ -82,15 +86,18 @@ struct lexer_error {
     lexer_error_code    code_;
     usize               line_;
     usize               column_;
+    
     lexer_error(): code_(lexer_error_code::none), line_(0), column_(0) {}
     lexer_error(lexer_error_code code, usize line, usize col): code_(code), line_(line), column_(col) {}  
 };
 
 struct token {
-    token_type  type;
-    string      value;
-
-    token(token_type t, string v): type(t), value(v) {}
+    token_type  type_;
+    string      value_;
+    usize       line_;
+    usize       column_;
+    token(token_type t, string v, usize l=0, usize c=0)
+        : type_(t), value_(v), line_(l), column_(c) {}
 };
 
 void print_token(const token& token);

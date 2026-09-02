@@ -42,7 +42,7 @@ struct runtime_config {
    usize workers;
    bool  workers_auto;
    usize max_connections;
-   usize max_conns_per_worker;
+   usize max_connections_per_worker;
 
   string user;
   string group;

@@ -1,9 +1,16 @@
 #include "lexer.hpp"
 #include <cassert>
+#include <map>
 
 namespace config {
 
-static std::unordered_map<const char*, token_type> known_words = {
+#define TOKEN(TYPE, VALUE) token(TYPE, VALUE, line_, column_)
+#define WORD(W) token(token_type_of_word(W), W, line_, column_)
+#define SYMBOL(S) token(token_type_of_symbol(S), string(&S, 1), line_, column_)
+#define LEXER_ERROR(CODE) std::unexpected(lexer_error(CODE, line_, column_))
+ 
+
+static std::map<std::string, token_type> known_words = {
     { "workers", token_type::workers},
     { "workers_auto", token_type::workers_auto},
     { "user", token_type::user},
@@ -22,7 +29,7 @@ static std::unordered_map<const char*, token_type> known_words = {
     { "index", token_type::index},
     { "max_request_line_size", token_type::max_request_line_size},
     { "max_headers_size", token_type::max_header_size},
-    { "max_header", token_type::max_header_size},
+    { "max_headers", token_type::max_headers},
     { "client_max_body_size", token_type::client_body_max_size},
     { "max_request_per_connection", token_type::max_requests_per_connection},
 
@@ -59,11 +66,27 @@ static bool is_alpha(char c) {
            (c >= 'A' && c <= 'Z');
 }
 
-static char_type type_of(char c) {
+static bool is_special(char c) {
+    return c == '-' ||
+        c == '_' ||
+        c == '.' ||
+        c == '/' ||
+        c == '\\' ||
+        c == '$' ||
+        c == ':' ||
+        c == '~';
+}
+
+static char_type classify(char c) {
+    if (c == '#') return char_type::comment;
+    if (c == '\n') return char_type::newline;
     if (c == '\0') return char_type::end;
     if (is_space(c)) return char_type::whitespace;
     if (is_digit(c)) return char_type::digit;
     if (is_alpha(c)) return char_type::alpha;
+    
+    if (is_special(c)) return char_type::special;
+
     if (string("\"'`").find(c) != string::npos) return char_type::quote;
     if (string("{};").find(c) != string::npos) return char_type::symbol;
     return char_type::invalid;
@@ -88,6 +111,7 @@ static const char* get_token_name(token_type type) {
         case token_type::listen:                       return "listen";
         case token_type::root:                         return "root";
         case token_type::max_request_line_size:        return "max_request_line_size";
+        case token_type::max_headers:                  return "max_headers";
         case token_type::max_header_size:              return "max_header_size";
         case token_type::client_body_max_size:         return "client_body_max_size";
         case token_type::max_requests_per_connection:  return "max_requests_per_connection";
@@ -141,11 +165,13 @@ static token_type token_type_of_symbol(char c) {
 }
 
 static token_type token_type_of_word(const std::string& word) {
-    return known_words[word.c_str()];
+    auto it = known_words.find(word);
+    if (it == known_words.end()) return token_type::identifier;
+    return it->second;
 }
 
 void print_token(const token& token) {
-    std::cout << "type: " << get_token_name(token.type) << " | value: " << token.value << std::endl; 
+    std::cout << "type: " << get_token_name(token.type_) << " | value: " << token.value_ << std::endl; 
 }
 
 lexer::lexer(std::string_view& s)
@@ -162,7 +188,7 @@ bool lexer::eof() const {
 }
 
 void lexer::skip_line() {
-    char c;
+    char c = '\0';
     while (!eof() && ((c = consume()) != '\n')) {}
 
     if (c == '\n') unconsume();
@@ -179,43 +205,41 @@ void lexer::unconsume() {
     --pos_;
 }
 
-
 std::expected<token, lexer_error> lexer::next() {
     string word;
+
     while (!eof()) {
-        char c = consume();
-        if (c == '\n') {
-            ++line_;
-            column_ = 0;
-        } else {
-            ++column_;
-        }
-        if (c == '#') {
-            skip_line();
-            continue;
-        }
-        auto type = type_of(c);
+        auto c = consume();
+        auto type = classify(c);
         switch (type) {
+            case char_type::newline:
+                ++line_;
+                column_ = 0;
+                break;
+            case char_type::comment:
+                skip_line();
+                if (!word.empty()) return WORD(word);
+                break;
             case char_type::symbol:
                 if (!word.empty()) {
                     unconsume();
-                    return token(token_type_of_word(word), "");
+                    return WORD(word);
                 }
-                return token(token_type_of_symbol(c), string(&c, 1));
-            case char_type::digit: case char_type::alpha:
+                return SYMBOL(c);
+            case char_type::digit: case char_type::alpha: case char_type::special:
                 word += c;
                 break;
             case char_type::whitespace:
-                if (!word.empty()) {
-                    return token(token_type_of_word(word), "");
-                }
+                if (!word.empty()) return WORD(word);
                 break;
             case char_type::invalid:
-                return std::unexpected(lexer_error(lexer_error_code::invalid_character, line_, column_));
+                std::cout << "C: '" << c << "'\n";
+                return LEXER_ERROR(lexer_error_code::invalid_character);
             default: break;
         }
+        ++column_;
     }
-    return token(token_type::end, "");
+    return TOKEN(token_type::end, "");
 }
 
 std::expected<void, lexer_error> lexer::lex() {
@@ -223,6 +247,7 @@ std::expected<void, lexer_error> lexer::lex() {
         auto token = next();
         if (!token)
             return std::unexpected(token.error());
+        if (token.value().type_ == token_type::end) break;
         tokens_.push_back(token.value());
     }
     lexed_ = true;
