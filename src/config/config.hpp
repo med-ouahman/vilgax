@@ -50,7 +50,6 @@ struct runtime_config {
   string pid_file;
   string access_log;
   string error_log;
-
 };
 
 struct global_http_config {
