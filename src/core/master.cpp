@@ -51,10 +51,12 @@ bool master::load_config(const std::string& conf) {
     }
 
     auto tokens = lexer_.tokens();
+    for ( auto const& t: tokens) { print_token(t); }
     config::parser parser(tokens);
     auto result = parser.parse();
     if (!result) {
-        std::cout << "Parse error\n";
+        const auto& err = result.error();
+        std::cout << "Parse error: " << parse_error_msg(err.code, err.expected, err.found) << std::endl;
         return false;
     }
 

@@ -6,12 +6,12 @@ using namespace config;
 
 class LexerTest : public ::testing::Test {
 protected:
-    std::expected<std::vector<token>, lexer_error> lex_string(const std::string& input) {
+    base::expected<std::vector<token>, lexer_error> lex_string(const std::string& input) {
         std::string_view sv(input);
         lexer lex(sv);
         auto result = lex.lex();
         if (!result) {
-            return std::unexpected(result.error());
+            return base::unexpected(result.error());
         }
         return lex.tokens();
     }

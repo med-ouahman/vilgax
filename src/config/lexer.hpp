@@ -3,7 +3,7 @@
 #include <string_view>
 #include <string>
 #include <vector>
-#include <expected>
+#include "expected.hpp"
 #include "types.hpp"
 #include <iostream>
 #include <unordered_map>
@@ -24,6 +24,7 @@ enum class char_type {
 };
 
 enum class token_type {
+    none,
     lbrace,
     rbrace,
     semicolon,
@@ -98,6 +99,7 @@ struct token {
     usize       column_;
     token(token_type t, string v, usize l=0, usize c=0)
         : type_(t), value_(v), line_(l), column_(c) {}
+    explicit operator bool() { return type_ == token_type::end; }
 };
 
 void print_token(const token& token);
@@ -113,7 +115,7 @@ private:
     usize column_;
 
 private:
-    std::expected<token, lexer_error> next();
+    base::expected<token, lexer_error> next();
 
     bool    eof() const;
     void    skip_line();
@@ -123,7 +125,7 @@ private:
 public:
     lexer(std::string_view& s);
     ~lexer();
-    std::expected<void, lexer_error> lex();
+    base::expected<void, lexer_error> lex();
     const std::vector<token>& tokens() const;
 };
 

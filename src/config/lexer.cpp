@@ -7,7 +7,7 @@ namespace config {
 #define TOKEN(TYPE, VALUE) token(TYPE, VALUE, line_, column_)
 #define WORD(W) token(token_type_of_word(W), W, line_, column_)
 #define SYMBOL(S) token(token_type_of_symbol(S), string(&S, 1), line_, column_)
-#define LEXER_ERROR(CODE) std::unexpected(lexer_error(CODE, line_, column_))
+#define LEXER_ERROR(CODE) base::unexpected(lexer_error(CODE, line_, column_))
  
 
 static std::map<std::string, token_type> known_words = {
@@ -94,6 +94,7 @@ static char_type classify(char c) {
 
 static const char* get_token_name(token_type type) {
     switch (type) {
+        case token_type::none:                           return "none";
         case token_type::lbrace:                       return "lbrace";
         case token_type::rbrace:                       return "rbrace";
         case token_type::semicolon:                   return "semicolon";
@@ -205,7 +206,7 @@ void lexer::unconsume() {
     --pos_;
 }
 
-std::expected<token, lexer_error> lexer::next() {
+base::expected<token, lexer_error> lexer::next() {
     string word;
 
     while (!eof()) {
@@ -242,11 +243,11 @@ std::expected<token, lexer_error> lexer::next() {
     return TOKEN(token_type::end, "");
 }
 
-std::expected<void, lexer_error> lexer::lex() {
+base::expected<void, lexer_error> lexer::lex() {
     while (true) {
         auto token = next();
         if (!token)
-            return std::unexpected(token.error());
+            return base::unexpected(token.error());
         if (token.value().type_ == token_type::end) break;
         tokens_.push_back(token.value());
     }

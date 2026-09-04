@@ -4,60 +4,126 @@
 
 namespace config {
 
-#define PARSE_ERROR() std::unexpected(parse_error())
-parser::parser(const std::vector<token>& tokens): tokens_(tokens) {}
+#define UNEXPECTED_TOKEN_ERROR(EXPECTED, FOUND) \
+    base::unexpected(parse_error(parse_error_code::unexpected_token, \
+        line_, \
+        column_, \
+        EXPECTED, \
+        FOUND))
+
+// #define PARSE_ERROR(CODE) base::unexpected(parse_error(CODE, line_, column_, ))
+
+parser::parser(const std::vector<token>& tokens): tokens_(tokens), pos_(0), conf_(), line_(0), column_(0) {}
 
 parser::~parser() {}
-
 
 token parser::next() {
     if (pos_ >= tokens_.size()) return token(token_type::end, "");
     return tokens_[pos_++];
 }
 
-std::expected<token, parse_error> parser::expect(token_type type) {
+bool parser::eof() const {
+    return pos_ >= tokens_.size();
+}
+
+base::expected<token, parse_error> parser::expect(token_type type) {
     auto next_token = next();
+
     if (next_token.type_ != type)
-        return std::unexpected(parse_error());
+        return UNEXPECTED_TOKEN_ERROR(type, next_token.type_);
     return next_token;
 }
 
-std::expected<server_config, parse_error> parser::parse_server() {
+base::expected<server_config, parse_error> parser::parse_server() {
 
-    if (!expect(token_type::lbrace)) return PARSE_ERROR();
+    server_config serv_conf{};
 
-    while (true) {
+    auto token = expect(token_type::lbrace);
+
+    if (!token) return base::unexpected(token.error());
+
+    while (!eof()) {
 
     }
 
-    if (!expect(token_type::rbrace)) return PARSE_ERROR();
-
+    {
+        auto token = expect(token_type::rbrace);
+        if (!token) return base::unexpected(token.error());
+    }
+    return serv_conf;
 }
 
-std::expected<location_config, parse_error> parser::parse_location() {
+base::expected<location_config, parse_error> parser::parse_location() {
+    location_config loc_conf{};
     
-}
-
-std::expected<fastcgi_config, parse_error> parser::parse_fastcgi() {
+    auto token = expect(token_type::lbrace);
     
-}
+    if (!token) return base::unexpected(token.error());
 
-std::expected<directive, parse_error> parser::parse_directive() {
+    while (!eof()) {
+
+    }
+
+    {
+        auto token = expect(token_type::rbrace);
+        if (!token) return base::unexpected(token.error());
+    }
     
+    
+    return loc_conf;
 }
 
-std::expected<void, parse_error> parser::parse() {
+base::expected<fastcgi_config, parse_error> parser::parse_fastcgi() {
+    fastcgi_config fastcgi_conf{};
 
-    while (true) {
+    auto token = expect(token_type::lbrace);
+    if (!token) return base::unexpected(token.error());
+    
+    while (!eof()) {
+        std::cout << "hehe\n";
+    }
 
+  { auto token = expect(token_type::rbrace);
+    
+    if (!token) return base::unexpected(token.error());}
+    
+    return fastcgi_conf;
+}
+
+base::expected<directive, parse_error> parser::parse_directive() {
+    
+    directive dirc{};
+
+    auto token = next();
+    
+    if (!token) return VALUE_ERROR();
+        
+    auto expected_ = expect(token_type::semicolon)
+    
+    if (!expected_) return base::unexpected(expected_.error());
+
+    dirc.value = expected_.value().value_;
+    dirc.type = expected_.value().type_;
+    
+    return dirc;
+}
+
+base::expected<void, parse_error> parser::parse() {
+    line_ = 0;
+    column_ = 0;
+    pos_ = 0;
+    while (!eof()) {
         auto token = next();
-
         auto type = token.type_;
+        line_ = token.line_;
+        column_ = token.column_;
         switch (type) {
-            /* parse top level blocks*/
-            case token_type::server:
-                parse_server();
+            case token_type::server: {
+                auto result = parse_server();
+                if (!result) return base::unexpected(result.error());
+                conf_.servers.push_back(result.value());
                 break;
+            }
             case token_type::workers:
             case token_type::workers_auto:
             case token_type::max_connections:
@@ -81,7 +147,7 @@ std::expected<void, parse_error> parser::parse() {
                 break;
             default:
                 /* error: configuration rule not allowed on top level*/
-                return std::unexpected(parse_error());
+                return PARSE_ERROR(parse_error_code::not_allowed_top_level);
         }
 
     }
