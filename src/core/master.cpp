@@ -55,8 +55,17 @@ bool master::load_config(const std::string& conf) {
     config::parser parser(tokens);
     auto result = parser.parse();
     if (!result) {
+        
         const auto& err = result.error();
-        std::cout << "Parse error: " << parse_error_msg(err.code, err.expected, err.found) << std::endl;
+
+        if (err.code == config::parse_error_code::unexpected_token) {
+            std::cout << "Parse error: " << unexpected_token_error(err.expected, err.found)
+            << " "
+            << config::get_line_column(err.line, err.column) << std::endl;
+        } else if (err.code == config::parse_error::not_allowed) {
+            std::cout << "Parse error: " << token_not_allowed(err.not_allowed, err.context) << config::get_line_column(err.line, err.column) << "\n";
+        }
+        
         return false;
     }
 

@@ -92,12 +92,12 @@ static char_type classify(char c) {
     return char_type::invalid;
 }
 
-static const char* get_token_name(token_type type) {
+const char* get_token_name(token_type type) {
     switch (type) {
         case token_type::none:                           return "none";
-        case token_type::lbrace:                       return "lbrace";
-        case token_type::rbrace:                       return "rbrace";
-        case token_type::semicolon:                   return "semicolon";
+        case token_type::lbrace:                       return "{";
+        case token_type::rbrace:                       return "}";
+        case token_type::semicolon:                   return ";";
         case token_type::workers:                     return "workers";
         case token_type::workers_auto:                return "workers_auto";
         case token_type::user:                        return "user";
@@ -135,7 +135,7 @@ static const char* get_token_name(token_type type) {
         case token_type::identifier:                   return "identifier";
         case token_type::string:                       return "string";
         case token_type::number:                       return "number";
-        case token_type::end:                          return "end";
+        case token_type::end:                          return "EOF";
     }
     return "unknown";
 }

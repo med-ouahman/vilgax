@@ -10,8 +10,13 @@ namespace config {
         column_, \
         EXPECTED, \
         FOUND))
+        
+#define PARSE_ERROR(CODE) base::unexpected(parse_error(CODE, line_, column_))
 
-// #define PARSE_ERROR(CODE) base::unexpected(parse_error(CODE, line_, column_, ))
+#define VALUE_ERROR() PARSE_ERROR(parse_error_code::missing_value)
+
+#define NOT_ALLOWED(TOKEN_TYPE) \
+    base::unexpected(parse_error(parse_error_code::not_allowed, TOKEN_TYPE, line_, column_))
 
 parser::parser(const std::vector<token>& tokens): tokens_(tokens), pos_(0), conf_(), line_(0), column_(0) {}
 
@@ -43,12 +48,33 @@ base::expected<server_config, parse_error> parser::parse_server() {
     if (!token) return base::unexpected(token.error());
 
     while (!eof()) {
-
+       auto token = next();
+       switch (token.type_) {
+            case token_type::location:
+                parse_location();
+                break;
+            case token_type::root:
+            case token_type::server_name:
+            case token_type::index:
+            case token_type::error_pages:
+            case token_type::client_body_max_size:
+            case token_type::redirect:
+            case token_type::listen:
+                parse_directive();
+                break;
+            case token_type::fastcgi:
+                parse_fastcgi();
+                break;
+            default: return NOT_ALLOWED(token.type_);
+       }
     }
 
     {
-        auto token = expect(token_type::rbrace);
-        if (!token) return base::unexpected(token.error());
+
+        
+        auto token = \
+            expect(token_type::rbrace);
+ parse_error_code::not_allowed, TOKEN_TYPE, line_, column_       if (!token) return base::unexpected(token.error());
     }
     return serv_conf;
 }
@@ -61,7 +87,7 @@ base::expected<location_config, parse_error> parser::parse_location() {
     if (!token) return base::unexpected(token.error());
 
     while (!eof()) {
-
+    
     }
 
     {
@@ -98,7 +124,7 @@ base::expected<directive, parse_error> parser::parse_directive() {
     
     if (!token) return VALUE_ERROR();
         
-    auto expected_ = expect(token_type::semicolon)
+    auto expected_ = expect(token_type::semicolon);
     
     if (!expected_) return base::unexpected(expected_.error());
 

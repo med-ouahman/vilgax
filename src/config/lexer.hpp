@@ -102,6 +102,7 @@ struct token {
     explicit operator bool() { return type_ == token_type::end; }
 };
 
+const char* get_token_name(token_type type);
 void print_token(const token& token);
 const char* lexer_error_code_phrase(lexer_error_code code);
 
