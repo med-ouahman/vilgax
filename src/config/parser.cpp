@@ -9,6 +9,10 @@ parser::parser(const std::vector<token>& tokens): tokens_(tokens) {}
 
 parser::~parser() {}
 
+bool parser::eof() const {
+    return tokens_[pos_].type_ == token_type::end;
+}
+
 
 token parser::next() {
     if (pos_ >= tokens_.size()) return token(token_type::end, "");
@@ -25,33 +29,89 @@ std::expected<token, parse_error> parser::expect(token_type type) {
 std::expected<server_config, parse_error> parser::parse_server() {
 
     if (!expect(token_type::lbrace)) return PARSE_ERROR();
-
+    server_config serv_conf{};
     while (true) {
-
+        auto token = next();
+        switch (token.type_) {
+            case token_type::server_name:
+            case token_type::autoindex:
+            case token_type::root:
+            case token_type::index:
+            case token_type::listen:
+            case token_type::error_pages:
+            case token_type::redirect:
+                parse_directive();
+                break;
+            case token_type::location:
+                parse_location();
+                break;
+            case token_type::fastcgi:
+                parse_fastcgi();
+                break;
+            case token_type::end:
+                break;
+            default:
+                return PARSE_ERROR();
+        }
     }
-
     if (!expect(token_type::rbrace)) return PARSE_ERROR();
-
+    return serv_conf;
 }
 
 std::expected<location_config, parse_error> parser::parse_location() {
-    
+    if (!expect(token_type::lbrace)) return PARSE_ERROR();
+    location_config loc_conf{};
+    while (true) {
+        auto token = next();
+        switch (token.type_) {
+            case token_type::root:
+            case token_type::index:
+            case token_type::autoindex:
+            case token_type::client_body_max_size:
+            case token_type::redirect:
+                parse_directive();
+                break;
+            case token_type::end:
+                break;
+            default:
+                return PARSE_ERROR();
+        }
+    }
+    if (!expect(token_type::rbrace)) return PARSE_ERROR();
+    return loc_conf;
+
 }
 
 std::expected<fastcgi_config, parse_error> parser::parse_fastcgi() {
-    
+    if (!expect(token_type::lbrace)) return PARSE_ERROR();
+    fastcgi_config fastcgi_conf{};
+    while (!eof()) {
+        auto token = next();
+        switch (token.type_) {
+            case token_type::listen:
+                parse_directive();
+                break;
+            default:
+                return PARSE_ERROR();
+        }
+    }
+    if (!expect(token_type::lbrace)) return PARSE_ERROR();
+    return fastcgi_conf;
 }
 
 std::expected<directive, parse_error> parser::parse_directive() {
-    
+    directive dirc{};
+    auto token = expect(token_type::identifier);
+    if (!token) return PARSE_ERROR();
+    if (!expect(token_type::semicolon)) return PARSE_ERROR();
+    dirc.value = token.value().value_;
+    dirc.type = token.value().type_;
+    return dirc;
 }
 
 std::expected<void, parse_error> parser::parse() {
-
     while (true) {
-
         auto token = next();
-
         auto type = token.type_;
         switch (type) {
             /* parse top level blocks*/
