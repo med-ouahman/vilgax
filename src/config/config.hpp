@@ -24,10 +24,12 @@ struct fastcgi_config {
 };
 
 struct location_config {
+   string path;
    string root;
    std::optional<fastcgi_config> fastcgi_conf;
    bool autoindex;
    std::vector<string> index;
+   std::vector<location_config> locations;
    
 };
 

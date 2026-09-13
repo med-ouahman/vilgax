@@ -1,270 +1,190 @@
 #include "parser.hpp"
-#include "config.hpp"
-
 
 namespace config {
 
 #define UNEXPECTED_TOKEN_ERROR(EXPECTED, FOUND) \
     base::unexpected(parse_error(parse_error_code::unexpected_token, \
-        line_, \
-        column_, \
-        EXPECTED, \
-        FOUND))
-        
-#define PARSE_ERROR(CODE) base::unexpected(parse_error(CODE, line_, column_))
+                                 line_, column_, EXPECTED, FOUND))
 
-#define VALUE_ERROR() PARSE_ERROR(parse_error_code::missing_value)
+#define VALUE_ERROR(DIRECTIVE) \
+    base::unexpected(parse_error(parse_error_code::missing_value, \
+                                 line_, column_, DIRECTIVE))
 
-#define NOT_ALLOWED(TOKEN_TYPE) \
-    base::unexpected(parse_error(parse_error_code::not_allowed, TOKEN_TYPE, line_, column_))
+#define NOT_ALLOWED(TOKEN_TYPE, CONTEXT) \
+    base::unexpected(parse_error(parse_error_code::not_allowed, \
+                                 TOKEN_TYPE, CONTEXT, line_, column_))
 
-parser::parser(const std::vector<token>& tokens): tokens_(tokens), pos_(0), conf_(), line_(0), column_(0) {}
+parser::parser(const std::vector<token>& tokens)
+    : tokens_(tokens), pos_(0), conf_(), line_(0), column_(0) {}
 
-parser::~parser() {}
-
-bool parser::eof() const {
-    return tokens_[pos_].type_ == token_type::end;
-}
-
-token parser::next() {
-    if (pos_ >= tokens_.size()) return token(token_type::end, "");
-    return tokens_[pos_++];
-}
+parser::~parser() = default;
 
 bool parser::eof() const {
     return pos_ >= tokens_.size();
 }
 
+token parser::next() {
+    if (eof())
+        return token(token_type::end, "", line_, column_);
+    return tokens_[pos_++];
+}
+
 base::expected<token, parse_error> parser::expect(token_type type) {
-    auto next_token = next();
-
-    if (next_token.type_ != type)
-        return UNEXPECTED_TOKEN_ERROR(type, next_token.type_);
-    return next_token;
+    const auto found = next();
+    line_ = found.line_;
+    column_ = found.column_;
+    if (found.type_ != type)
+        return UNEXPECTED_TOKEN_ERROR(type, found.type_);
+    return found;
 }
 
-base::expected<server_config, parse_error> parser::parse_server() {
+base::expected<directive, parse_error> parser::parse_directive(token_type directive_type) {
+    const auto value = next();
+    if (value.type_ == token_type::end)
+        return VALUE_ERROR(directive_type);
 
-    if (!expect(token_type::lbrace)) return PARSE_ERROR();
-    server_config serv_conf{};
-    while (true) {
-        auto token = next();
-        switch (token.type_) {
-            case token_type::server_name:
-            case token_type::autoindex:
-            case token_type::root:
-            case token_type::index:
-            case token_type::listen:
-            case token_type::error_pages:
-            case token_type::redirect:
-                parse_directive();
-                break;
-            case token_type::location:
-                parse_location();
-                break;
-            case token_type::fastcgi:
-                parse_fastcgi();
-                break;
-            case token_type::end:
-                break;
-            default:
-                return PARSE_ERROR();
-        }
-    }
-    if (!expect(token_type::rbrace)) return PARSE_ERROR();
-    return serv_conf;
+    const auto semicolon = expect(token_type::semicolon);
+    if (!semicolon)
+        return base::unexpected(semicolon.error());
+
+    return directive{value.value_, directive_type};
 }
 
-std::expected<location_config, parse_error> parser::parse_location() {
-    if (!expect(token_type::lbrace)) return PARSE_ERROR();
-    location_config loc_conf{};
-    while (true) {
-        auto token = next();
-        switch (token.type_) {
+base::expected<location_config, parse_error> parser::parse_location(usize depth) {
+    const auto path = expect(token_type::identifier);
+    if (!path)
+        return base::unexpected(path.error());
+
+    const auto brace = expect(token_type::lbrace);
+    if (!brace)
+        return base::unexpected(brace.error());
+
+    location_config location{};
+    location.path = path.value().value_;
+    while (!eof()) {
+        const auto current = next();
+        line_ = current.line_;
+        column_ = current.column_;
+        if (current.type_ == token_type::rbrace)
+            return location;
+
+        switch (current.type_) {
             case token_type::root:
             case token_type::index:
             case token_type::autoindex:
             case token_type::client_body_max_size:
-            case token_type::redirect:
-                parse_directive();
+            case token_type::redirect: {
+                auto result = parse_directive(current.type_);
+                if (!result)
+                    return base::unexpected(result.error());
                 break;
-            case token_type::end:
+            }
+            case token_type::location: {
+                if (depth >= max_location_depth_)
+                    return NOT_ALLOWED(current.type_, token_type::location);
+
+                auto result = parse_location(depth + 1);
+                if (!result)
+                    return base::unexpected(result.error());
+                location.locations.push_back(result.value());
                 break;
+            }
             default:
-                return PARSE_ERROR();
+                return NOT_ALLOWED(current.type_, token_type::location);
         }
     }
-    if (!expect(token_type::rbrace)) return PARSE_ERROR();
-    return loc_conf;
-
-}
-
-std::expected<fastcgi_config, parse_error> parser::parse_fastcgi() {
-    if (!expect(token_type::lbrace)) return PARSE_ERROR();
-    fastcgi_config fastcgi_conf{};
-    while (!eof()) {
-        auto token = next();
-        switch (token.type_) {
-            case token_type::listen:
-                parse_directive();
-                break;
-            default:
-                return PARSE_ERROR();
-        }
-    }
-    if (!expect(token_type::lbrace)) return PARSE_ERROR();
-    return fastcgi_conf;
-}
-
-std::expected<directive, parse_error> parser::parse_directive() {
-    directive dirc{};
-    auto token = expect(token_type::identifier);
-    if (!token) return PARSE_ERROR();
-    if (!expect(token_type::semicolon)) return PARSE_ERROR();
-    dirc.value = token.value().value_;
-    dirc.type = token.value().type_;
-    return dirc;
-}
-
-std::expected<void, parse_error> parser::parse() {
-    
-    server_config serv_conf{};
-
-    auto token = expect(token_type::lbrace);
-
-    if (!token) return base::unexpected(token.error());
-
-    while (!eof()) {
-       auto token = next();
-       switch (token.type_) {
-            case token_type::location:
-                parse_location();
-                break;
-            case token_type::root:
-            case token_type::server_name:
-            case token_type::index:
-            case token_type::error_pages:
-            case token_type::client_body_max_size:
-            case token_type::redirect:
-            case token_type::listen:
-                parse_directive();
-                break;
-            case token_type::fastcgi:
-                parse_fastcgi();
-                break;
-            default: return NOT_ALLOWED(token.type_);
-       }
-    }
-
-    {
-
-        
-        auto token = expect(token_type::rbrace);
- parse_error_code::not_allowed, TOKEN_TYPE, line_, column_       if (!token) return base::unexpected(token.error());
-    }
-    return serv_conf;
-}
-
-base::expected<location_config, parse_error> parser::parse_location() {
-    location_config loc_conf{};
-    
-    auto token = expect(token_type::lbrace);
-    
-    if (!token) return base::unexpected(token.error());
-
-    while (!eof()) {
-    
-    }
-
-    {
-        auto token = expect(token_type::rbrace);
-        if (!token) return base::unexpected(token.error());
-    }
-    
-    
-    return loc_conf;
+    return UNEXPECTED_TOKEN_ERROR(token_type::rbrace, token_type::end);
 }
 
 base::expected<fastcgi_config, parse_error> parser::parse_fastcgi() {
-    fastcgi_config fastcgi_conf{};
+    const auto brace = expect(token_type::lbrace);
+    if (!brace)
+        return base::unexpected(brace.error());
 
-    auto token = expect(token_type::lbrace);
-    if (!token) return base::unexpected(token.error());
-    
+    fastcgi_config fastcgi{};
     while (!eof()) {
-        std::cout << "hehe\n";
-    }
+        const auto current = next();
+        line_ = current.line_;
+        column_ = current.column_;
+        if (current.type_ == token_type::rbrace)
+            return fastcgi;
+        if (current.type_ != token_type::listen)
+            return NOT_ALLOWED(current.type_, token_type::fastcgi);
 
-  { auto token = expect(token_type::rbrace);
-    
-    if (!token) return base::unexpected(token.error());}
-    
-    return fastcgi_conf;
+        auto result = parse_directive(current.type_);
+        if (!result)
+            return base::unexpected(result.error());
+    }
+    return UNEXPECTED_TOKEN_ERROR(token_type::rbrace, token_type::end);
 }
 
-base::expected<directive, parse_error> parser::parse_directive() {
-    
-    directive dirc{};
+base::expected<server_config, parse_error> parser::parse_server() {
+    const auto brace = expect(token_type::lbrace);
+    if (!brace)
+        return base::unexpected(brace.error());
 
-    auto token = next();
-    
-    if (!token) return VALUE_ERROR();
-        
-    auto expected_ = expect(token_type::semicolon);
-    
-    if (!expected_) return base::unexpected(expected_.error());
+    server_config server{};
+    while (!eof()) {
+        const auto current = next();
+        line_ = current.line_;
+        column_ = current.column_;
+        if (current.type_ == token_type::rbrace)
+            return server;
 
-    dirc.value = expected_.value().value_;
-    dirc.type = expected_.value().type_;
-    
-    return dirc;
+        switch (current.type_) {
+            case token_type::server_name:
+            case token_type::autoindex:
+            case token_type::root:
+            case token_type::index:
+            case token_type::listen:
+            case token_type::error_pages:
+            case token_type::redirect: {
+                auto result = parse_directive(current.type_);
+                if (!result)
+                    return base::unexpected(result.error());
+                break;
+            }
+            case token_type::location: {
+                auto result = parse_location(1);
+                if (!result)
+                    return base::unexpected(result.error());
+                server.locations.push_back(result.value());
+                break;
+            }
+            case token_type::fastcgi: {
+                auto result = parse_fastcgi();
+                if (!result)
+                    return base::unexpected(result.error());
+                break;
+            }
+            default:
+                return NOT_ALLOWED(current.type_, token_type::server);
+        }
+    }
+    return UNEXPECTED_TOKEN_ERROR(token_type::rbrace, token_type::end);
 }
 
 base::expected<void, parse_error> parser::parse() {
-    line_ = 0;
-    column_ = 0;
     pos_ = 0;
-    while (!eof()) {
-        auto token = next();
-        auto type = token.type_;
-        line_ = token.line_;
-        column_ = token.column_;
-        switch (type) {
-            case token_type::server: {
-                auto result = parse_server();
-                if (!result) return base::unexpected(result.error());
-                conf_.servers.push_back(result.value());
-                break;
-            }
-            case token_type::workers:
-            case token_type::workers_auto:
-            case token_type::max_connections:
-            case token_type::max_connections_per_worker:
-            case token_type::user:
-            case token_type::group:
-            case token_type::access_log:
-            case token_type::error_log:
-            case token_type::pid_file:
-            case token_type::max_request_line_size:
-            case token_type::max_header_size:
-            case token_type::max_headers:
-            case token_type::max_requests_per_connection:
-            case token_type::timeout_headers:
-            case token_type::timeout_body:
-            case token_type::timeout_write:
-            case token_type::keepalive:
-            case token_type::sendfile:
-            case token_type::sendfile_min_size:
-                parse_directive();
-                break;
-            default:
-                /* error: configuration rule not allowed on top level*/
-                return PARSE_ERROR(parse_error_code::not_allowed_top_level);
-        }
+    conf_ = main_config{};
 
+    while (!eof()) {
+        const auto current = next();
+        line_ = current.line_;
+        column_ = current.column_;
+        if (current.type_ != token_type::server)
+            return NOT_ALLOWED(current.type_, token_type::none);
+        auto result = parse_server();
+        if (!result)
+            return base::unexpected(result.error());
+        conf_.servers.push_back(result.value());
     }
 
     return {};
+}
+
+const main_config& parser::get_main_conf() const {
+    return conf_;
 }
 
 }
