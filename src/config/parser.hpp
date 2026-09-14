@@ -96,6 +96,8 @@ struct parse_error {
     }
 };
 
+void print_parse_error(const parse_error& error, const string& filename);
+
 struct directive {
     string value;
     token_type type;

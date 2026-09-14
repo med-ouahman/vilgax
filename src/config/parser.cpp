@@ -2,6 +2,41 @@
 
 namespace config {
 
+void print_parse_error(const parse_error& error, const string& filename) {
+    std::cout << "Error: Parser: " << parse_error_msg(error.code) << "\n";
+
+    switch (error.code) {
+        case parse_error_code::unexpected_token:
+            std::cout << "  Expected: '"
+                      << get_token_name(error.unexpected_err.expected)
+                      << "'\n"
+                      << "  Found: '"
+                      << get_token_name(error.unexpected_err.found)
+                      << "'\n";
+            break;
+        case parse_error_code::missing_value:
+            std::cout << "  Directive: '"
+                      << get_token_name(error.missing_err.directive)
+                      << "'\n";
+            break;
+        case parse_error_code::not_allowed:
+            std::cout << "  Token: '"
+                      << get_token_name(error.not_allowed_err.not_allowed)
+                      << "'\n"
+                      << "  Context: '"
+                      << get_token_name(error.not_allowed_err.context)
+                      << "'\n";
+            break;
+        case parse_error_code::none:
+        case parse_error_code::expected_token:
+        case parse_error_code::unknown_token:
+            break;
+    }
+
+    std::cout << "  Location: " << filename << ":" << error.line << ":"
+              << error.column << "\n";
+}
+
 #define UNEXPECTED_TOKEN_ERROR(EXPECTED, FOUND) \
     base::unexpected(parse_error(parse_error_code::unexpected_token, \
                                  line_, column_, EXPECTED, FOUND))
