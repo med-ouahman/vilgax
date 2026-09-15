@@ -23,6 +23,12 @@ struct fastcgi_config {
    timer       read_timeout;
 };
 
+struct redirect_conf {
+   string   location;
+   usize    code;
+};
+
+
 struct location_config {
    string path;
    string root;
@@ -34,10 +40,14 @@ struct location_config {
 };
 
 struct server_config {
-   std::vector<listen_endpoint> listens;
-   string root;
-   std::vector<location_config> locations;
-   std::vector<string> server_names;
+   string                        root;
+   std::vector<string>           server_names;
+   std::vector<string>           index;
+   std::vector<string>           erorr_pages;
+   redirect_conf                 redirect;
+   std::vector<listen_endpoint>  listens;
+   std::vector<location_config>  locations;
+   bool                          autoindex;
 };
 
 struct runtime_config {

@@ -99,7 +99,7 @@ struct token {
     usize       column_;
     token(token_type t, string v, usize l=0, usize c=0)
         : type_(t), value_(v), line_(l), column_(c) {}
-    explicit operator bool() { return type_ == token_type::end; }
+    explicit operator bool() { return type_ != token_type::end; }
 };
 
 const char* get_token_name(token_type type);

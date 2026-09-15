@@ -94,12 +94,14 @@ struct parse_error {
         : code(error_code), line(error_line), column(error_column) {
         not_allowed_err = {token, context};
     }
+
+    parse_error() {}
 };
 
 void print_parse_error(const parse_error& error, const string& filename);
 
-struct directive {
-    string value;
+struct directive_conf {
+    std::vector<string> values;
     token_type type;
 };
 
@@ -119,7 +121,9 @@ private:
     base::expected<server_config, parse_error> parse_server();
     base::expected<location_config, parse_error> parse_location(usize depth);
     base::expected<fastcgi_config, parse_error> parse_fastcgi();
-    base::expected<directive, parse_error> parse_directive(token_type directive);
+    base::expected<directive_conf, parse_error> parse_directive(token_type directive);
+
+    base::expected<void, parse_error> add_server_directive(server_config& server, const directive_conf& directive);
 
 public:
     parser(const std::vector<token>& tokens);

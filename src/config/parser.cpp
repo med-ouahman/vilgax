@@ -1,6 +1,73 @@
 #include "parser.hpp"
+#include "baselib/stoi.hpp"
 
 namespace config {
+
+static bool accpets_multiple_values(token_type token) {
+
+    switch (token) {
+        case token_type::error_pages:
+        case token_type::server_name:
+        case token_type::index:
+        case token_type::autoindex:
+            return true;
+        default: return false;
+    }
+
+    return false;
+}
+
+static base::expected<listen_endpoint, parse_error> parse_listen(const string& listen_str) {
+    auto colon = listen_str.find_last_of(':');
+    if (colon == string::npos)
+        return std::unexpected(parse_error());
+
+}
+
+
+base::expected<void, parse_error>
+parser::add_server_directive(server_config& server, const directive_conf& directive) {
+    switch (directive.type) {
+        case token_type::server_name:
+            server.server_names = std::move(directive.values);
+            break;
+        case token_type::root:
+            server.root = std::move(directive.values[0]);
+            break;
+        case token_type::error_pages:
+            server.erorr_pages = std::move(directive.values);
+            break;
+        case token_type::index:
+            server.index = std::move(directive.values);
+            break;
+        case token_type::autoindex: {
+            const auto& value = directive.values[0];
+            server.autoindex = value == "on";
+            break;
+        }
+        case token_type::redirect: {
+            if (directive.values.size() > 2)
+                return base::unexpected(parse_error());
+            server.redirect.location = directive.values[0];
+            auto result = base::stoi(directive.values[1]);
+            if (!result) {
+                return std::unexpected(parse_error());
+            }
+            server.redirect.code = result.value();
+            break;
+        }
+        case token_type::listen: {
+            for (const auto value: directive.values) {
+                auto listen = parse_listen(value);
+                if (!listen) {
+                    return std::unexpected(parse_error());
+                }
+                server.listens.push_back(listen.value());
+            }
+        }
+
+    }
+}
 
 void print_parse_error(const parse_error& error, const string& filename) {
     std::cout << "Error: Parser: " << parse_error_msg(error.code) << "\n";
@@ -64,7 +131,8 @@ token parser::next() {
     return tokens_[pos_++];
 }
 
-base::expected<token, parse_error> parser::expect(token_type type) {
+base::expected<token, parse_error>
+parser::expect(token_type type) {
     const auto found = next();
     line_ = found.line_;
     column_ = found.column_;
@@ -73,27 +141,38 @@ base::expected<token, parse_error> parser::expect(token_type type) {
     return found;
 }
 
-base::expected<directive, parse_error> parser::parse_directive(token_type directive_type) {
-    const auto value = next();
+base::expected<directive_conf, parse_error>
+parser::parse_directive(token_type directive_type) {
+    auto value = next();
     if (value.type_ == token_type::end)
         return VALUE_ERROR(directive_type);
-
-    const auto semicolon = expect(token_type::semicolon);
-    if (!semicolon)
-        return base::unexpected(semicolon.error());
-
-    return directive{value.value_, directive_type};
+    directive_conf dirc{};
+    size_t count = 0;
+    bool accepts_mult = accpets_multiple_values(directive_type);
+    while (value && value.type_ == token_type::identifier) {
+        ++count;
+        if (!accepts_mult && count > 1)
+            return UNEXPECTED_TOKEN_ERROR(token_type::semicolon, value.type_);
+        dirc.values.push_back(value.value_);
+        value = next();
+    }
+    if (value.type_ != token_type::semicolon) {
+        return UNEXPECTED_TOKEN_ERROR(token_type::semicolon, value.type_);
+    }
+    if (count == 0) {
+        return UNEXPECTED_TOKEN_ERROR(token_type::identifier, token_type::semicolon);
+    }
+    return dirc;
 }
 
-base::expected<location_config, parse_error> parser::parse_location(usize depth) {
+base::expected<location_config, parse_error>
+parser::parse_location(usize depth) {
     const auto path = expect(token_type::identifier);
     if (!path)
         return base::unexpected(path.error());
-
     const auto brace = expect(token_type::lbrace);
     if (!brace)
         return base::unexpected(brace.error());
-
     location_config location{};
     location.path = path.value().value_;
     while (!eof()) {
@@ -117,21 +196,21 @@ base::expected<location_config, parse_error> parser::parse_location(usize depth)
             case token_type::location: {
                 if (depth >= max_location_depth_)
                     return NOT_ALLOWED(current.type_, token_type::location);
-
                 auto result = parse_location(depth + 1);
                 if (!result)
                     return base::unexpected(result.error());
                 location.locations.push_back(result.value());
                 break;
             }
-            default:
-                return NOT_ALLOWED(current.type_, token_type::location);
+            default: return NOT_ALLOWED(current.type_, token_type::location);
         }
     }
     return UNEXPECTED_TOKEN_ERROR(token_type::rbrace, token_type::end);
 }
 
-base::expected<fastcgi_config, parse_error> parser::parse_fastcgi() {
+base::expected<fastcgi_config, parse_error>
+parser::parse_fastcgi() {
+
     const auto brace = expect(token_type::lbrace);
     if (!brace)
         return base::unexpected(brace.error());
@@ -165,7 +244,6 @@ base::expected<server_config, parse_error> parser::parse_server() {
         column_ = current.column_;
         if (current.type_ == token_type::rbrace)
             return server;
-
         switch (current.type_) {
             case token_type::server_name:
             case token_type::autoindex:
@@ -177,6 +255,7 @@ base::expected<server_config, parse_error> parser::parse_server() {
                 auto result = parse_directive(current.type_);
                 if (!result)
                     return base::unexpected(result.error());
+                add_server_directive(server, result.value());
                 break;
             }
             case token_type::location: {
@@ -192,8 +271,7 @@ base::expected<server_config, parse_error> parser::parse_server() {
                     return base::unexpected(result.error());
                 break;
             }
-            default:
-                return NOT_ALLOWED(current.type_, token_type::server);
+            default: return NOT_ALLOWED(current.type_, token_type::server);
         }
     }
     return UNEXPECTED_TOKEN_ERROR(token_type::rbrace, token_type::end);
@@ -202,7 +280,6 @@ base::expected<server_config, parse_error> parser::parse_server() {
 base::expected<void, parse_error> parser::parse() {
     pos_ = 0;
     conf_ = main_config{};
-
     while (!eof()) {
         const auto current = next();
         line_ = current.line_;

@@ -5,7 +5,7 @@
 
 set -e  # Exit on error
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_DIR="$(pwd)"
 BUILD_DIR="$SCRIPT_DIR/build"
 
 # Check if user wants a clean rebuild

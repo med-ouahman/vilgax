@@ -50,9 +50,11 @@ bool master::load_config(const std::string& conf) {
         return false;
     }
 
-    auto tokens = lexer_.tokens();
-    for ( auto const& t: tokens) { print_token(t); }
-    config::parser parser(tokens);
+    config::parser parser(lexer_.tokens());
+    // auto tokens = lexer_.tokens();
+    // for (auto a: tokens) {
+    //     config::print_token(a);
+    // }
     auto result = parser.parse();
     if (!result) {
         config::print_parse_error(result.error(), conf);
