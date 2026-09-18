@@ -105,8 +105,8 @@ const char* get_token_name(token_type type) {
         case token_type::access_log:                  return "access_log";
         case token_type::error_log:                   return "error_log";
         case token_type::pid_file:                     return "pid_file";
-        case token_type::max_connections:             return "max_connections";
-        case token_type::max_connections_per_worker:  return "max_connections_per_worker";
+        case token_type::max_connections:               return "max_connections";
+        case token_type::max_connections_per_worker:    return "max_connections_per_worker";
         case token_type::server:                       return "server";
         case token_type::server_name:                  return "server_name";
         case token_type::listen:                       return "listen";
@@ -234,7 +234,6 @@ base::expected<token, lexer_error> lexer::next() {
                 if (!word.empty()) return WORD(word);
                 break;
             case char_type::invalid:
-                std::cout << "C: '" << c << "'\n";
                 return LEXER_ERROR(lexer_error_code::invalid_character);
             default: break;
         }

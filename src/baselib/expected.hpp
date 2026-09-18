@@ -34,7 +34,6 @@ public:
     }
 };
 
-
 template<typename T, typename E>
 class expected_internal
 {

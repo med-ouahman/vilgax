@@ -15,6 +15,7 @@ set(SOURCES
     src/core/master.cpp
     src/core/server.cpp
     src/core/worker.cpp
+    src/baselib/string.cpp
 )
 
 # Add header directories

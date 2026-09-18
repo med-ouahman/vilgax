@@ -1,5 +1,7 @@
 #include "parser.hpp"
 #include "baselib/stoi.hpp"
+#include "baselib/string.hpp"
+#include <arpa/inet.h>
 
 namespace config {
 
@@ -17,13 +19,176 @@ static bool accpets_multiple_values(token_type token) {
     return false;
 }
 
-static base::expected<listen_endpoint, parse_error> parse_listen(const string& listen_str) {
-    auto colon = listen_str.find_last_of(':');
-    if (colon == string::npos)
-        return std::unexpected(parse_error());
-
+static base::expected<ipv4, listen_error>
+parse_ipv4(const string& ip_str) {
+    in_addr addr;
+    if (0 == inet_aton(ip_str.c_str(), std::addressof(addr)))
+        return base::unexpected(listen_error(listen_error_code::invalid_ipv4));
+    return static_cast<ipv4>(addr.s_addr);
 }
 
+static base::expected<ipv6, listen_error>
+parse_ipv6(const string& ip_str) {
+
+    auto first = ip_str.find("::");
+    auto last = ip_str.rfind("::");
+
+    if (first != last) {
+        return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+    }
+
+    if (first == string::npos) {
+        ipv6 address = 0;
+        auto hextets = base::split_string(ip_str, ":");
+        if (hextets.size() != 8) {
+            return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+        }
+
+        for (const auto& hextet : hextets) {
+            auto group = base::parse_number<usize>(hextet, 16);
+            if (!group || group.value() > 0xffff) return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+            address = (address << 16) | group.value();
+        }
+        return address;
+    }
+
+    string left_str  = ip_str.substr(0, first);
+    string right_str = ip_str.substr(first + 2);
+
+    std::vector<string> left_hextets;
+    std::vector<string> right_hextets;
+
+    if (!left_str.empty())  left_hextets  = base::split_string(left_str, ":");
+    if (!right_str.empty()) right_hextets = base::split_string(right_str, ":");
+
+    for (const auto& h : left_hextets)  if (h.empty()) {
+        return base::unexpected(listen_error_code(listen_error_code::invalid_ipv4));
+    }
+
+    for (const auto& h : right_hextets) if (h.empty()) {
+        return base::unexpected(listen_error_code(listen_error_code::invalid_ipv4));
+    }
+
+    auto parse_hextets = [](const std::vector<string>& hextets, std::vector<u16>& out) {
+        for (const auto& hextet : hextets) {
+            auto group = base::parse_number<usize>(hextet, 16);
+            if (!group || group.value() > 0xffff) return false;
+            out.push_back(static_cast<u16>(group.value()));
+        }
+        return true;
+    };
+
+    std::vector<u16> left_groups;
+    if (!parse_hextets(left_hextets, left_groups)) {
+        return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+    }
+
+    std::vector<u16> right_groups;
+
+    if (!right_hextets.empty() &&
+        right_hextets.back().find('.') != string::npos) {
+
+        auto v4 = parse_ipv4(right_hextets.back());
+        if (!v4) return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+
+        right_hextets.pop_back();
+        if (!parse_hextets(right_hextets, right_groups)) {
+            return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+        }
+
+        u32 v4_addr = v4.value();
+        right_groups.push_back(static_cast<u16>(v4_addr >> 16));
+        right_groups.push_back(static_cast<u16>(v4_addr & 0xffff));
+    } else {
+        if (!parse_hextets(right_hextets, right_groups)) {
+            return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+        }
+    }
+
+    usize total = left_groups.size() + right_groups.size();
+    if (total >= 8) {
+        return base::unexpected(listen_error(listen_error_code::invalid_ipv6));
+    }
+
+    usize zero_groups = 8 - total;
+
+    ipv6 address = 0;
+    for (auto g : left_groups)  address = (address << 16) | g;
+    for (usize i = 0; i < zero_groups; ++i) address = address << 16;
+    for (auto g : right_groups) address = (address << 16) | g;
+
+    return address;
+}
+
+static base::expected<ip_address, listen_error> parse_ip_address(const string& ip_str) {
+    if (ip_str.find(':') == string::npos) {
+        auto v4 = parse_ipv4(ip_str);
+        if (!v4) {
+            return base::unexpected(v4.error());
+        }
+
+        return ip_address(v4.value());
+    }
+    auto v6 = parse_ipv6(ip_str);
+    if (!v6) {
+        return base::unexpected(v6.error());
+    }
+
+    return ip_address(v6.value());
+}
+
+static base::expected<port_number, listen_error> parse_port_number(const string& port_str) {
+    auto result = base::parse_number<usize>(port_str);
+    if (!result) {
+        return base::unexpected(listen_error(listen_error_code::invalid_port));
+    }
+
+    auto number = result.value();
+
+    if (number > parser::max_port_number_) {
+        return base::unexpected(listen_error(listen_error_code::port_out_of_range));
+    }
+
+    return number;
+}
+
+static base::expected<listen_endpoint, listen_error>
+parse_listen(const std::vector<string>& values) {
+   
+    if (values.size() < 1 || values.size() > 2) {
+        return base::unexpected(listen_error(listen_error_code::invalid_format));
+    }
+
+    const auto& ip_part = values[0];
+    auto colon = ip_part.find_last_of(':');
+    
+    if (colon == string::npos) {
+        return base::unexpected(listen_error(listen_error_code::invalid_format));
+    }
+
+    auto ip_str   = ip_part.substr(0, colon);
+    auto port_str = ip_part.substr(colon + 1);
+    
+    auto address = parse_ip_address(ip_str);
+
+    if (!address) return base::unexpected(address.error());
+    
+    auto port = parse_port_number(port_str);
+    
+    if (!port) {
+        return base::unexpected(port.error());
+    }
+
+    auto backlog = 0uz;
+
+    if (values.size() == 2) {
+        auto result = base::parse_number<usize>(values[1]);
+        if (!result)  return base::unexpected(listen_error_code::invalid_backlog);
+        backlog = result.value();
+    }
+
+    return listen_endpoint{address.value(), port.value(), backlog};
+}
 
 base::expected<void, parse_error>
 parser::add_server_directive(server_config& server, const directive_conf& directive) {
@@ -49,24 +214,24 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
             if (directive.values.size() > 2)
                 return base::unexpected(parse_error());
             server.redirect.location = directive.values[0];
-            auto result = base::stoi(directive.values[1]);
+            auto result = base::parse_number<usize>(directive.values[1]);
             if (!result) {
-                return std::unexpected(parse_error());
+                return base::unexpected(parse_error());
             }
             server.redirect.code = result.value();
             break;
         }
+
         case token_type::listen: {
-            for (const auto value: directive.values) {
-                auto listen = parse_listen(value);
-                if (!listen) {
-                    return std::unexpected(parse_error());
-                }
-                server.listens.push_back(listen.value());
-            }
+            auto listen = parse_listen(directive.values);
+            if (!listen) return base::unexpected(parse_error());
+            server.listens.push_back(listen.value());
+            break;
         }
 
+        default: return base::unexpected(parse_error());
     }
+    return {};
 }
 
 void print_parse_error(const parse_error& error, const string& filename) {
@@ -93,6 +258,9 @@ void print_parse_error(const parse_error& error, const string& filename) {
                       << "  Context: '"
                       << get_token_name(error.not_allowed_err.context)
                       << "'\n";
+            break;
+        case parse_error_code::listen_error:
+            std::cout << error.listen_err.message() << "\n";
             break;
         case parse_error_code::none:
         case parse_error_code::expected_token:
