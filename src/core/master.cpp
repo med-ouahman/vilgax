@@ -6,12 +6,15 @@
 #include <sstream>
 #include "parser.hpp"
 #include "lexer.hpp"
+#include "config.hpp"
 
 namespace core {
 
 master::master(const std::string& conf) {
     
-    if (!load_config(conf)) exit(1);
+    if (!load_config(conf)) {
+        exit(1);
+    }
     
 }
 
@@ -23,13 +26,14 @@ int master::start() {
     return 0;
 }
 
-bool master::load_config(const std::string& conf) {
-    std::ifstream file(conf);
+bool master::load_config(const std::string& conf_filename) {
+    std::ifstream file(conf_filename);
 
     if (file.fail()) {
         std::cout << "Error: Cannot open configuration file\n";
         return false;
     }
+
     file.seekg(0, std::ios::end);
     auto size = file.tellg();
 
@@ -57,9 +61,12 @@ bool master::load_config(const std::string& conf) {
     // }
     auto result = parser.parse();
     if (!result) {
-        config::print_parse_error(result.error(), conf);
+        config::print_parse_error(result.error(), conf_filename);
         return false;
     }
+
+    const auto& conf = parser.get_main_conf();
+    display_conf(conf);
 
     return true;
 }

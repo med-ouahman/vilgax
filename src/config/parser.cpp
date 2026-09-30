@@ -2,6 +2,7 @@
 #include "baselib/stoi.hpp"
 #include "baselib/string.hpp"
 #include <arpa/inet.h>
+#include <cassert>
 
 namespace config {
 
@@ -22,8 +23,11 @@ static bool accpets_multiple_values(token_type token) {
 static base::expected<ipv4, listen_error>
 parse_ipv4(const string& ip_str) {
     in_addr addr;
-    if (0 == inet_aton(ip_str.c_str(), std::addressof(addr)))
+
+    if (0 == inet_aton(ip_str.c_str(), std::addressof(addr))) {
         return base::unexpected(listen_error(listen_error_code::invalid_ipv4));
+    }
+    
     return static_cast<ipv4>(addr.s_addr);
 }
 
@@ -62,11 +66,11 @@ parse_ipv6(const string& ip_str) {
     if (!right_str.empty()) right_hextets = base::split_string(right_str, ":");
 
     for (const auto& h : left_hextets)  if (h.empty()) {
-        return base::unexpected(listen_error_code(listen_error_code::invalid_ipv4));
+        return base::unexpected(listen_error(listen_error_code::invalid_ipv4));
     }
 
     for (const auto& h : right_hextets) if (h.empty()) {
-        return base::unexpected(listen_error_code(listen_error_code::invalid_ipv4));
+        return base::unexpected(listen_error(listen_error_code::invalid_ipv4));
     }
 
     auto parse_hextets = [](const std::vector<string>& hextets, std::vector<u16>& out) {
@@ -142,18 +146,16 @@ static base::expected<port_number, listen_error> parse_port_number(const string&
     if (!result) {
         return base::unexpected(listen_error(listen_error_code::invalid_port));
     }
-
+    
     auto number = result.value();
-
     if (number > parser::max_port_number_) {
         return base::unexpected(listen_error(listen_error_code::port_out_of_range));
     }
-
     return number;
 }
 
-static base::expected<listen_endpoint, listen_error>
-parse_listen(const std::vector<string>& values) {
+base::expected<listen_endpoint, listen_error>
+parser::parse_listen(const std::vector<string>& values) const {
    
     if (values.size() < 1 || values.size() > 2) {
         return base::unexpected(listen_error(listen_error_code::invalid_format));
@@ -171,7 +173,9 @@ parse_listen(const std::vector<string>& values) {
     
     auto address = parse_ip_address(ip_str);
 
-    if (!address) return base::unexpected(address.error());
+    if (!address) {
+        return base::unexpected(address.error());
+    }
     
     auto port = parse_port_number(port_str);
     
@@ -179,11 +183,14 @@ parse_listen(const std::vector<string>& values) {
         return base::unexpected(port.error());
     }
 
-    auto backlog = 0uz;
-
+    auto backlog = conf_.runtime_conf.backlog; // default backlog
     if (values.size() == 2) {
         auto result = base::parse_number<usize>(values[1]);
-        if (!result)  return base::unexpected(listen_error_code::invalid_backlog);
+        
+        if (!result) {
+            return base::unexpected(listen_error(listen_error_code::invalid_backlog));
+        }
+
         backlog = result.value();
     }
 
@@ -211,12 +218,14 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
             break;
         }
         case token_type::redirect: {
-            if (directive.values.size() > 2)
+            if (directive.values.size() > 2) {
                 return base::unexpected(parse_error());
+            }
+
             server.redirect.location = directive.values[0];
             auto result = base::parse_number<usize>(directive.values[1]);
             if (!result) {
-                return base::unexpected(parse_error());
+                return base::unexpected(parse_error(listen_error(listen_error_code::invalid_port)));
             }
             server.redirect.code = result.value();
             break;
@@ -224,13 +233,63 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
 
         case token_type::listen: {
             auto listen = parse_listen(directive.values);
-            if (!listen) return base::unexpected(parse_error());
+            if (!listen) {
+                return base::unexpected(parse_error(listen.error()));
+            }   
             server.listens.push_back(listen.value());
             break;
         }
-
-        default: return base::unexpected(parse_error());
+        default: {
+            std::string s = "Unexhaustive switch: unhandled type: "
+              + std::string(get_token_name(directive.type));
+            std::cerr << s << '\n';
+            assert(false);
+        }
     }
+
+    return {};
+}
+
+base::expected<void, parse_error> parser::add_global_directive(const directive_conf& conf) {
+
+    switch (conf.type) {
+        case token_type::access_log:
+            conf_.runtime_conf.access_log = conf.values[0];
+            break;
+        case token_type::backlog: {
+            auto result = base::parse_number<usize>(conf.values[0]);
+            if (!result) {
+                return base::unexpected(parse_error(syntax_error(syntax_error_kind::number, conf.type)));
+            }
+            conf_.runtime_conf.backlog = result.value();
+            break;
+        }
+        case token_type::group:
+            conf_.runtime_conf.group = conf.values[0];
+            break;
+        case token_type::user:
+            conf_.runtime_conf.user = conf.values[0];
+            break;
+        case token_type::error_log:
+            conf_.runtime_conf.error_log = conf.values[0];
+            break;
+        case token_type::pid_file:
+            conf_.runtime_conf.pid_file = conf.values[0];
+            break;
+        case token_type::workers: {
+            auto result = base::parse_number<usize>(conf.values[0]);
+            if (!result) {
+                return base::unexpected(parse_error(syntax_error(syntax_error_kind::number, conf.type)));
+            }
+            conf_.runtime_conf.workers = result.value();
+            break;
+        }
+        case token_type::workers_auto:
+            conf_.runtime_conf.workers_auto = conf.values[0] == "on";
+            break;
+        default: break;
+    }
+
     return {};
 }
 
@@ -262,6 +321,9 @@ void print_parse_error(const parse_error& error, const string& filename) {
         case parse_error_code::listen_error:
             std::cout << error.listen_err.message() << "\n";
             break;
+        case parse_error_code::syntax_error:
+            std::cout << error.syntax_err.message() << '\n';
+            break;
         case parse_error_code::none:
         case parse_error_code::expected_token:
         case parse_error_code::unknown_token:
@@ -269,7 +331,7 @@ void print_parse_error(const parse_error& error, const string& filename) {
     }
 
     std::cout << "  Location: " << filename << ":" << error.line << ":"
-              << error.column << "\n";
+              << error.column << std::endl;
 }
 
 #define UNEXPECTED_TOKEN_ERROR(EXPECTED, FOUND) \
@@ -294,9 +356,15 @@ bool parser::eof() const {
 }
 
 token parser::next() {
-    if (eof())
+    
+    if (eof()) {
         return token(token_type::end, "", line_, column_);
-    return tokens_[pos_++];
+    }
+
+    const auto& token = tokens_[pos_++];
+    line_ = token.line_;
+    column_ = token.column_;
+    return token;
 }
 
 base::expected<token, parse_error>
@@ -304,23 +372,27 @@ parser::expect(token_type type) {
     const auto found = next();
     line_ = found.line_;
     column_ = found.column_;
-    if (found.type_ != type)
+    if (found.type_ != type) {
         return UNEXPECTED_TOKEN_ERROR(type, found.type_);
+    }
     return found;
 }
 
 base::expected<directive_conf, parse_error>
 parser::parse_directive(token_type directive_type) {
     auto value = next();
-    if (value.type_ == token_type::end)
+    
+    if (value.type_ == token_type::end) {
         return VALUE_ERROR(directive_type);
-    directive_conf dirc{};
+    }
+    directive_conf dirc{ values: {}, type: directive_type};
     size_t count = 0;
     bool accepts_mult = accpets_multiple_values(directive_type);
     while (value && value.type_ == token_type::identifier) {
         ++count;
-        if (!accepts_mult && count > 1)
+        if (!accepts_mult && count > 1) {
             return UNEXPECTED_TOKEN_ERROR(token_type::semicolon, value.type_);
+        }
         dirc.values.push_back(value.value_);
         value = next();
     }
@@ -380,9 +452,11 @@ base::expected<fastcgi_config, parse_error>
 parser::parse_fastcgi() {
 
     const auto brace = expect(token_type::lbrace);
-    if (!brace)
+    
+    if (!brace) {
         return base::unexpected(brace.error());
-
+    }
+    
     fastcgi_config fastcgi{};
     while (!eof()) {
         const auto current = next();
@@ -420,10 +494,17 @@ base::expected<server_config, parse_error> parser::parse_server() {
             case token_type::listen:
             case token_type::error_pages:
             case token_type::redirect: {
-                auto result = parse_directive(current.type_);
-                if (!result)
+                
+                auto directive_res = parse_directive(current.type_);
+                
+                if (!directive_res) {
+                    return base::unexpected(directive_res.error());
+                }
+                
+                auto result = add_server_directive(server, directive_res.value());
+                if (!result) {
                     return base::unexpected(result.error());
-                add_server_directive(server, result.value());
+                }
                 break;
             }
             case token_type::location: {
@@ -452,12 +533,33 @@ base::expected<void, parse_error> parser::parse() {
         const auto current = next();
         line_ = current.line_;
         column_ = current.column_;
-        if (current.type_ != token_type::server)
-            return NOT_ALLOWED(current.type_, token_type::none);
-        auto result = parse_server();
-        if (!result)
-            return base::unexpected(result.error());
-        conf_.servers.push_back(result.value());
+        switch (current.type_) {
+            case token_type::server: {
+                auto result = parse_server();
+                if (!result) {
+                    return base::unexpected(result.error());
+                }
+                conf_.servers.push_back(result.value());
+                break;
+            }
+            case token_type::access_log:
+            case token_type::backlog:
+            case token_type::group:
+            case token_type::user:
+            case token_type::error_log:
+            case token_type::pid_file:
+            case token_type::workers:
+            case token_type::workers_auto: {
+                auto d = parse_directive(current.type_);
+                if (!d) {
+                    return base::unexpected(d.error());
+                }
+                auto result = add_global_directive(d.value());
+                break;
+            }
+            default: return NOT_ALLOWED(current.type_, token_type::none);
+        }
+       
     }
 
     return {};

@@ -92,7 +92,7 @@ static char_type classify(char c) {
     return char_type::invalid;
 }
 
-const char* get_token_name(token_type type) {
+string get_token_name(token_type type) {
     switch (type) {
         case token_type::none:                           return "none";
         case token_type::lbrace:                       return "{";

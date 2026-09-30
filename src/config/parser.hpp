@@ -4,6 +4,8 @@
 #include "expected.hpp"
 #include "lexer.hpp"
 
+#include <new>
+
 namespace config {
 
 enum class parse_error_code {
@@ -13,7 +15,8 @@ enum class parse_error_code {
     unexpected_token,
     not_allowed,
     missing_value,
-    listen_error
+    listen_error,
+    syntax_error
 };
 
 inline const char* parse_error_msg(parse_error_code code) {
@@ -22,9 +25,10 @@ inline const char* parse_error_msg(parse_error_code code) {
         case parse_error_code::expected_token: return "expected token";
         case parse_error_code::unknown_token: return "unknown token";
         case parse_error_code::unexpected_token: return "unexpected token";
-        case parse_error_code::not_allowed: return "configuration rule not allowed here";
+        case parse_error_code::not_allowed: return "configuration rule not allowed in this scope";
         case parse_error_code::missing_value: return "missing value";
         case parse_error_code::listen_error: return "listen error";
+        case parse_error_code::syntax_error: return "syntax error";
     }
     return "";
 }
@@ -56,6 +60,26 @@ struct missing_value_error {
 struct token_not_allowed_error {
     token_type not_allowed;
     token_type context;
+};
+
+enum class syntax_error_kind {
+    number,
+};
+
+struct syntax_error {
+    syntax_error_kind kind;
+    token_type context;
+
+    string message() const {
+        string kind_str;
+        switch (kind) {
+            case syntax_error_kind::number:
+                kind_str = "number";
+                break;
+        }
+
+        return "Context: " + get_token_name(context) + ", kind: " + kind_str;
+    }
 };
 
 enum class listen_error_code {
@@ -107,30 +131,42 @@ struct listen_error {
 };
 
 struct parse_error {
+    enum class detail_kind {
+        none,
+        unexpected,
+        missing,
+        not_allowed,
+        listen,
+        syntax
+    };
+
     parse_error_code code;
     usize line;
     usize column;
+    detail_kind detail;
 
     union {
         unexpected_token_error  unexpected_err;
         missing_value_error     missing_err;
         token_not_allowed_error not_allowed_err;
         listen_error            listen_err;
+        syntax_error            syntax_err;
     };
 
     parse_error(parse_error_code error_code, usize error_line, usize error_column)
-        : code(error_code), line(error_line), column(error_column) {}
+        : code(error_code), line(error_line), column(error_column), detail(detail_kind::none) {}
 
     parse_error(parse_error_code error_code, usize error_line, usize error_column,
                 token_type expected, token_type found)
-        : code(error_code), line(error_line), column(error_column) {
+        : code(error_code), line(error_line), column(error_column), detail(detail_kind::unexpected) {
         unexpected_err = {expected, found};
     }
 
     parse_error(parse_error_code error_code, usize error_line, usize error_column,
                 token_type directive)
-        : code(error_code), line(error_line), column(error_column) {
-        if (error_code == parse_error_code::missing_value)
+                : code(error_code), line(error_line), column(error_column),
+                    detail(error_code == parse_error_code::missing_value ? detail_kind::missing : detail_kind::not_allowed) {
+                if (detail == detail_kind::missing)
             missing_err = {directive};
         else
             not_allowed_err = {directive, token_type::none};
@@ -142,7 +178,7 @@ struct parse_error {
 
     parse_error(parse_error_code error_code, token_type token, token_type context,
                 usize error_line, usize error_column)
-        : code(error_code), line(error_line), column(error_column) {
+        : code(error_code), line(error_line), column(error_column), detail(detail_kind::not_allowed) {
         not_allowed_err = {token, context};
     }
 
@@ -150,15 +186,82 @@ struct parse_error {
         : code(parse_error_code::listen_error),
         line(0),
         column(0),
+        detail(detail_kind::listen),
         listen_err(std::move(err)) {}
+
+    parse_error(const syntax_error& err)
+        : code(parse_error_code::syntax_error),
+        line(0),
+        column(0),
+        detail(detail_kind::syntax),
+        syntax_err(std::move(err)) {}
 
     parse_error()
         :  code(parse_error_code::missing_value),
         line(0),
         column(0),
+            detail(detail_kind::missing),
             missing_err() {}
+    
+    parse_error(parse_error_code c, syntax_error_kind kind, token_type ctx)
+        : code(c),
+            line(0),
+            column(0),
+            detail(detail_kind::syntax)
+        {
+        syntax_err = { kind, ctx };
+    }
 
-    ~parse_error() {}
+    parse_error(parse_error&& other) noexcept
+        : code(other.code), line(other.line), column(other.column), detail(other.detail) {
+        switch (detail) {
+            case detail_kind::unexpected:
+                new (&unexpected_err) unexpected_token_error(other.unexpected_err);
+                break;
+            case detail_kind::missing:
+                new (&missing_err) missing_value_error(other.missing_err);
+                break;
+            case detail_kind::not_allowed:
+                new (&not_allowed_err) token_not_allowed_error(other.not_allowed_err);
+                break;
+            case detail_kind::listen:
+                new (&listen_err) listen_error(std::move(other.listen_err));
+                break;
+            case detail_kind::syntax:
+                new (&syntax_err) syntax_error(std::move(other.syntax_err));
+                break;
+            case detail_kind::none:
+                break;
+        }
+    }
+
+    parse_error(const parse_error& other)
+        : code(other.code), line(other.line), column(other.column), detail(other.detail) {
+        switch (detail) {
+            case detail_kind::unexpected:
+                new (&unexpected_err) unexpected_token_error(other.unexpected_err);
+                break;
+            case detail_kind::missing:
+                new (&missing_err) missing_value_error(other.missing_err);
+                break;
+            case detail_kind::not_allowed:
+                new (&not_allowed_err) token_not_allowed_error(other.not_allowed_err);
+                break;
+            case detail_kind::listen:
+                new (&listen_err) listen_error(other.listen_err);
+                break;
+            case detail_kind::syntax:
+                new (&syntax_err) syntax_error(other.syntax_err);
+                break;
+            case detail_kind::none:
+                break;
+        }
+    }
+
+    ~parse_error() {
+        if (detail == detail_kind::listen)
+            listen_err.~listen_error();
+    }
 };
 
 void print_parse_error(const parse_error& error, const string& filename);
@@ -171,6 +274,7 @@ struct directive_conf {
 class parser {
 public:
     static constexpr usize max_port_number_ = (256 << 8) - 1;
+
 private:
     static constexpr usize max_location_depth_ = 2;
 
@@ -183,12 +287,17 @@ private:
     bool eof() const;
     token next();
     base::expected<token, parse_error> expect(token_type type);
-    base::expected<server_config, parse_error> parse_server();
+    base::expected<server_config, parse_error>  parse_server();
     base::expected<location_config, parse_error> parse_location(usize depth);
     base::expected<fastcgi_config, parse_error> parse_fastcgi();
     base::expected<directive_conf, parse_error> parse_directive(token_type directive);
+    base::expected<listen_endpoint, listen_error> parse_listen(const std::vector<string>& values) const;
 
-    base::expected<void, parse_error> add_server_directive(server_config& server, const directive_conf& directive);
+    base::expected<void, parse_error> add_server_directive(server_config& server,
+        const directive_conf& conf);
+    base::expected<void, parse_error> add_global_directive(const directive_conf& conf);
+
+
 
 public:
     parser(const std::vector<token>& tokens);
