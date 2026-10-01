@@ -88,7 +88,7 @@ struct lexer_error {
     usize               column_;
     
     lexer_error(): code_(lexer_error_code::none), line_(0), column_(0) {}
-    lexer_error(lexer_error_code code, usize line, usize col): code_(code), line_(line), column_(col) {}  
+    lexer_error(lexer_error_code code, usize line, usize col): code_(code), line_(line), column_(col) {}
 };
 
 struct token {

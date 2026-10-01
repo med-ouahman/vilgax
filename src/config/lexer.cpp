@@ -9,7 +9,6 @@ namespace config {
 #define SYMBOL(S) token(token_type_of_symbol(S), string(&S, 1), line_, column_)
 #define LEXER_ERROR(CODE) base::unexpected(lexer_error(CODE, line_, column_))
  
-
 static std::map<std::string, token_type> known_words = {
     { "workers", token_type::workers},
     { "user", token_type::user},
@@ -77,17 +76,35 @@ static bool is_special(char c) {
 }
 
 static char_type classify(char c) {
-    if (c == '#') return char_type::comment;
-    if (c == '\n') return char_type::newline;
-    if (c == '\0') return char_type::end;
-    if (is_space(c)) return char_type::whitespace;
-    if (is_digit(c)) return char_type::digit;
-    if (is_alpha(c)) return char_type::alpha;
+    if (c == '#') {
+        return char_type::comment;
+    }
+    if (c == '\n') {
+        return char_type::newline;
+    }
+    if (c == '\0') {
+        return char_type::end;
+    }
+    if (is_space(c)) {
+        return char_type::whitespace;
+    }
+    if (is_digit(c)) {
+        return char_type::digit;
+    }
+    if (is_alpha(c)) {
+        return char_type::alpha;
+    }
     
-    if (is_special(c)) return char_type::special;
+    if (is_special(c)) {
+        return char_type::special;
+    }
 
-    if (string("\"'`").find(c) != string::npos) return char_type::quote;
-    if (string("{};").find(c) != string::npos) return char_type::symbol;
+    if (string("\"'`").find(c) != string::npos) {
+        return char_type::quote;
+    }
+    if (string("{};").find(c) != string::npos) {
+        return char_type::symbol;
+    }
     return char_type::invalid;
 }
 
@@ -165,7 +182,11 @@ static token_type token_type_of_symbol(char c) {
 
 static token_type token_type_of_word(const std::string& word) {
     auto it = known_words.find(word);
-    if (it == known_words.end()) return token_type::identifier;
+    
+    if (it == known_words.end()) {
+        return token_type::identifier;
+    }
+    
     return it->second;
 }
 
@@ -190,17 +211,22 @@ void lexer::skip_line() {
     char c = '\0';
     while (!eof() && ((c = consume()) != '\n')) {}
 
-    if (c == '\n') unconsume();
+    if (c == '\n') {
+        unconsume();
+    }
 }
 
 char lexer::consume() {
-    if (pos_ >= source_.size())
+    if (pos_ >= source_.size()) {
         return '\0';
+    }
     return source_[pos_++];
 }
 
 void lexer::unconsume() {
-    if (pos_ == 0) return;
+    if (pos_ == 0) {
+        return;
+    }
     --pos_;
 }
 
@@ -217,7 +243,9 @@ base::expected<token, lexer_error> lexer::next() {
                 break;
             case char_type::comment:
                 skip_line();
-                if (!word.empty()) return WORD(word);
+                if (!word.empty()) {
+                    return WORD(word);
+                }
                 break;
             case char_type::symbol:
                 if (!word.empty()) {
@@ -229,7 +257,9 @@ base::expected<token, lexer_error> lexer::next() {
                 word += c;
                 break;
             case char_type::whitespace:
-                if (!word.empty()) return WORD(word);
+                if (!word.empty()) {
+                    return WORD(word);
+                }
                 break;
             case char_type::invalid:
                 return LEXER_ERROR(lexer_error_code::invalid_character);
@@ -243,9 +273,12 @@ base::expected<token, lexer_error> lexer::next() {
 base::expected<void, lexer_error> lexer::lex() {
     while (true) {
         auto token = next();
-        if (!token)
+        if (!token) {
             return base::unexpected(token.error());
-        if (token.value().type_ == token_type::end) break;
+        }
+        if (token.value().type_ == token_type::end){
+            break;
+        }
         tokens_.push_back(token.value());
     }
     lexed_ = true;

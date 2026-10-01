@@ -38,7 +38,6 @@ struct location_config {
    bool autoindex;
    std::vector<string> index;
    std::vector<location_config> locations;
-   
 };
 
 struct server_config {
