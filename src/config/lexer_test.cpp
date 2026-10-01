@@ -129,7 +129,7 @@ TEST_F(LexerTest, AllConfigKeywords) {
         max_connections_per_worker 256;
         max_request_line_size 8192;
         max_header_size 16384;
-        client_body_max_size 1048576;
+        client_max_body_size 1048576;
         timeout_request_line 30000;
         timeout_headers 30000;
         timeout_body 30000;

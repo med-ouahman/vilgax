@@ -64,6 +64,8 @@ struct token_not_allowed_error {
 
 enum class syntax_error_kind {
     number,
+    boolean,
+    timer
 };
 
 struct syntax_error {
@@ -75,6 +77,12 @@ struct syntax_error {
         switch (kind) {
             case syntax_error_kind::number:
                 kind_str = "number";
+                break;
+            case syntax_error_kind::boolean:
+                kind_str = "boolean";
+                break;
+            case syntax_error_kind::timer:
+                kind_str = "timer";
                 break;
         }
 

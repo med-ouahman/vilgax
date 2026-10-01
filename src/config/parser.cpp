@@ -3,6 +3,7 @@
 #include "baselib/string.hpp"
 #include <arpa/inet.h>
 #include <cassert>
+#include <limits>
 
 namespace config {
 
@@ -12,7 +13,7 @@ static bool accpets_multiple_values(token_type token) {
         case token_type::error_pages:
         case token_type::server_name:
         case token_type::index:
-        case token_type::autoindex:
+        case token_type::listen:
             return true;
         default: return false;
     }
@@ -239,8 +240,35 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
             server.listens.push_back(listen.value());
             break;
         }
+        case token_type::sendfile: {
+            const auto& value = directive.values[0];
+            if (value != "on" && value != "off") {
+                return base::unexpected(parse_error(
+                    syntax_error(syntax_error_kind::boolean, directive.type)));
+            }
+            server.sendfile = value == "on";
+            break;
+        }
+        case token_type::sendfile_min_size: {
+            auto result = base::parse_number<usize>(directive.values[0]);
+            if (!result) {
+                return base::unexpected(parse_error(
+                    syntax_error(syntax_error_kind::number, directive.type)));
+            }
+            server.sendfile_min_size = result.value();
+            break;
+        }
+        case token_type::keepalive: {
+            auto result = base::parse_number<usize>(directive.values[0]);
+            if (!result || result.value() > std::numeric_limits<timer>::max()) {
+                return base::unexpected(parse_error(
+                    syntax_error(syntax_error_kind::number, directive.type)));
+            }
+            server.keepalive = static_cast<timer>(result.value());
+            break;
+        }
         default: {
-            std::string s = "Unexhaustive switch: unhandled type: "
+            std::string s = "Non-exhaustive switch: unhandled type: "
               + std::string(get_token_name(directive.type));
             std::cerr << s << '\n';
             assert(false);
@@ -252,14 +280,45 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
 
 base::expected<void, parse_error> parser::add_global_directive(const directive_conf& conf) {
 
+    auto parse_size = [&conf]() -> base::expected<usize, parse_error> {
+        auto result = base::parse_number<usize>(conf.values[0]);
+        if (!result) {
+            return base::unexpected(parse_error(
+                syntax_error(syntax_error_kind::number, conf.type)));
+        }
+        return result.value();
+    };
+
+    auto parse_boolean = [&conf]() -> base::expected<bool, parse_error> {
+        if (conf.values[0] == "on") {
+            return true;
+        }
+
+        if (conf.values[0] == "off") {
+            return false;
+        }
+        
+        return base::unexpected(parse_error(
+            syntax_error(syntax_error_kind::boolean, conf.type)));
+    };
+
+    auto parse_timer = [&]() -> base::expected<timer, parse_error> {
+        auto result = parse_size();
+        if (!result || result.value() > std::numeric_limits<timer>::max()) {
+            return base::unexpected(parse_error(
+                syntax_error(syntax_error_kind::number, conf.type)));
+        }
+        return static_cast<timer>(result.value());
+    };
+
     switch (conf.type) {
         case token_type::access_log:
             conf_.runtime_conf.access_log = conf.values[0];
             break;
         case token_type::backlog: {
-            auto result = base::parse_number<usize>(conf.values[0]);
+            auto result = parse_size();
             if (!result) {
-                return base::unexpected(parse_error(syntax_error(syntax_error_kind::number, conf.type)));
+                return base::unexpected(result.error());
             }
             conf_.runtime_conf.backlog = result.value();
             break;
@@ -277,16 +336,98 @@ base::expected<void, parse_error> parser::add_global_directive(const directive_c
             conf_.runtime_conf.pid_file = conf.values[0];
             break;
         case token_type::workers: {
-            auto result = base::parse_number<usize>(conf.values[0]);
+            if (conf.values[0] == "auto") {
+                conf_.runtime_conf.workers_auto = true;
+                conf_.runtime_conf.workers = 0;
+                break;
+            }
+
+            auto result = parse_size();
             if (!result) {
-                return base::unexpected(parse_error(syntax_error(syntax_error_kind::number, conf.type)));
+                return base::unexpected(result.error());
             }
             conf_.runtime_conf.workers = result.value();
+            conf_.runtime_conf.workers_auto = false;
             break;
         }
-        case token_type::workers_auto:
-            conf_.runtime_conf.workers_auto = conf.values[0] == "on";
+        case token_type::max_connections:
+        case token_type::max_connections_per_worker: {
+            auto result = parse_size();
+            if (!result) {
+                return base::unexpected(result.error());
+            }
+            if (conf.type == token_type::max_connections)
+                conf_.runtime_conf.max_connections = result.value();
+            else
+                conf_.runtime_conf.max_connections_per_worker = result.value();
             break;
+        }
+        case token_type::max_request_line_size:
+        case token_type::max_header_size:
+        case token_type::max_headers:
+        case token_type::max_requests_per_connection:
+        case token_type::sendfile_min_size: {
+            auto result = parse_size();
+            if (!result) {
+                return base::unexpected(result.error());
+            }
+            switch (conf.type) {
+                case token_type::max_request_line_size:
+                    conf_.http_conf.max_request_line_size = result.value();
+                    break;
+                case token_type::max_header_size:
+                    conf_.http_conf.max_header_size = result.value();
+                    break;
+                case token_type::max_headers:
+                    conf_.http_conf.max_headers = result.value();
+                    break;
+                case token_type::max_requests_per_connection:
+                    conf_.http_conf.max_requests_per_connection = result.value();
+                    break;
+                case token_type::sendfile_min_size:
+                    conf_.http_conf.sendfile_min_size = result.value();
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
+        case token_type::keepalive:
+        case token_type::sendfile: {
+            auto result = parse_boolean();
+            if (!result) return base::unexpected(result.error());
+            if (conf.type == token_type::keepalive)
+                conf_.http_conf.keepalive = result.value();
+            else
+                conf_.http_conf.sendfile = result.value();
+            break;
+        }
+        case token_type::timeout_request_line:
+        case token_type::timeout_headers:
+        case token_type::timeout_body:
+        case token_type::timeout_write: {
+            auto result = parse_timer();
+            if (!result) {
+                return base::unexpected(result.error());
+            }
+            switch (conf.type) {
+                case token_type::timeout_request_line:
+                    conf_.http_timeout_conf.request_line = result.value();
+                    break;
+                case token_type::timeout_headers:
+                    conf_.http_timeout_conf.headers = result.value();
+                    break;
+                case token_type::timeout_body:
+                    conf_.http_timeout_conf.body = result.value();
+                    break;
+                case token_type::timeout_write:
+                    conf_.http_timeout_conf.write = result.value();
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
         default: break;
     }
 
@@ -396,6 +537,7 @@ parser::parse_directive(token_type directive_type) {
         dirc.values.push_back(value.value_);
         value = next();
     }
+
     if (value.type_ != token_type::semicolon) {
         return UNEXPECTED_TOKEN_ERROR(token_type::semicolon, value.type_);
     }
@@ -426,7 +568,7 @@ parser::parse_location(usize depth) {
             case token_type::root:
             case token_type::index:
             case token_type::autoindex:
-            case token_type::client_body_max_size:
+            case token_type::client_max_body_size:
             case token_type::redirect: {
                 auto result = parse_directive(current.type_);
                 if (!result)
@@ -440,6 +582,13 @@ parser::parse_location(usize depth) {
                 if (!result)
                     return base::unexpected(result.error());
                 location.locations.push_back(result.value());
+                break;
+            }
+            case token_type::fastcgi: {
+                auto result = parse_fastcgi();
+                if (!result)
+                    return base::unexpected(result.error());
+                location.fastcgi_conf = std::move(result.value());
                 break;
             }
             default: return NOT_ALLOWED(current.type_, token_type::location);
@@ -458,34 +607,75 @@ parser::parse_fastcgi() {
     }
     
     fastcgi_config fastcgi{};
+    bool has_listen = false;
     while (!eof()) {
         const auto current = next();
         line_ = current.line_;
         column_ = current.column_;
-        if (current.type_ == token_type::rbrace)
+        if (current.type_ == token_type::rbrace) {
+            if (!has_listen) {
+                return VALUE_ERROR(token_type::listen);
+            }
             return fastcgi;
-        if (current.type_ != token_type::listen)
-            return NOT_ALLOWED(current.type_, token_type::fastcgi);
+        }
 
         auto result = parse_directive(current.type_);
-        if (!result)
+        if (!result) {
             return base::unexpected(result.error());
+        }
+
+        switch (current.type_) {
+            case token_type::listen: {
+                auto endpoint = parse_listen(result.value().values);
+                
+                if (!endpoint) {
+                    return base::unexpected(parse_error(endpoint.error()));
+                }
+
+                fastcgi.addr = endpoint.value().addr;
+                fastcgi.port = endpoint.value().port;
+                has_listen = true;
+                break;
+            }
+            case token_type::fastcgi_timeout_connect:
+            case token_type::fastcgi_timeout_read: {
+                auto timeout = base::parse_number<usize>(result.value().values[0]);
+                if (!timeout || timeout.value() > std::numeric_limits<timer>::max()) {
+                    return base::unexpected(parse_error(
+                        syntax_error(syntax_error_kind::number, current.type_)));
+                }
+
+                if (current.type_ == token_type::fastcgi_timeout_connect)
+                    fastcgi.fastcgi_timeout_connect = static_cast<timer>(timeout.value());
+                else
+                    fastcgi.fastcgi_timeout_read = static_cast<timer>(timeout.value());
+                break;
+            }
+            default: {
+                return NOT_ALLOWED(current.type_, token_type::fastcgi);
+            }
+        }
     }
+
     return UNEXPECTED_TOKEN_ERROR(token_type::rbrace, token_type::end);
 }
 
 base::expected<server_config, parse_error> parser::parse_server() {
     const auto brace = expect(token_type::lbrace);
-    if (!brace)
+    if (!brace) {
         return base::unexpected(brace.error());
+    }
 
     server_config server{};
     while (!eof()) {
         const auto current = next();
         line_ = current.line_;
         column_ = current.column_;
-        if (current.type_ == token_type::rbrace)
+        
+        if (current.type_ == token_type::rbrace) {
             return server;
+        }
+
         switch (current.type_) {
             case token_type::server_name:
             case token_type::autoindex:
@@ -493,7 +683,10 @@ base::expected<server_config, parse_error> parser::parse_server() {
             case token_type::index:
             case token_type::listen:
             case token_type::error_pages:
-            case token_type::redirect: {
+            case token_type::redirect:
+            case token_type::sendfile:
+            case token_type::sendfile_min_size:
+            case token_type::keepalive: {
                 
                 auto directive_res = parse_directive(current.type_);
                 
@@ -509,15 +702,10 @@ base::expected<server_config, parse_error> parser::parse_server() {
             }
             case token_type::location: {
                 auto result = parse_location(1);
-                if (!result)
+                if (!result) {
                     return base::unexpected(result.error());
+                }
                 server.locations.push_back(result.value());
-                break;
-            }
-            case token_type::fastcgi: {
-                auto result = parse_fastcgi();
-                if (!result)
-                    return base::unexpected(result.error());
                 break;
             }
             default: return NOT_ALLOWED(current.type_, token_type::server);
@@ -549,12 +737,28 @@ base::expected<void, parse_error> parser::parse() {
             case token_type::error_log:
             case token_type::pid_file:
             case token_type::workers:
-            case token_type::workers_auto: {
+            case token_type::max_connections:
+            case token_type::max_connections_per_worker:
+            case token_type::max_request_line_size:
+            case token_type::client_max_body_size:
+            case token_type::max_header_size:
+            case token_type::max_headers:
+            case token_type::timeout_request_line:
+            case token_type::timeout_headers:
+            case token_type::timeout_body:
+            case token_type::timeout_write:
+            case token_type::max_requests_per_connection:
+            case token_type::keepalive:
+            case token_type::sendfile:
+            case token_type::sendfile_min_size: {
                 auto d = parse_directive(current.type_);
                 if (!d) {
                     return base::unexpected(d.error());
                 }
                 auto result = add_global_directive(d.value());
+                if (!result) {
+                    return base::unexpected(result.error());
+                }
                 break;
             }
             default: return NOT_ALLOWED(current.type_, token_type::none);

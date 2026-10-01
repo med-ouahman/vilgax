@@ -12,7 +12,6 @@ namespace config {
 
 static std::map<std::string, token_type> known_words = {
     { "workers", token_type::workers},
-    { "workers_auto", token_type::workers_auto},
     { "user", token_type::user},
     { "group", token_type::group},
     { "pid_file", token_type::pid_file},
@@ -28,10 +27,10 @@ static std::map<std::string, token_type> known_words = {
     { "location", token_type::location},
     { "index", token_type::index},
     { "max_request_line_size", token_type::max_request_line_size},
-    { "max_headers_size", token_type::max_header_size},
+    { "max_header_size", token_type::max_header_size},
     { "max_headers", token_type::max_headers},
-    { "client_max_body_size", token_type::client_body_max_size},
-    { "max_request_per_connection", token_type::max_requests_per_connection},
+    { "client_max_body_size", token_type::client_max_body_size},
+    { "max_requests_per_connection", token_type::max_requests_per_connection},
 
     { "keepalive", token_type::keepalive},
     { "sendfile", token_type::sendfile},
@@ -44,8 +43,8 @@ static std::map<std::string, token_type> known_words = {
     { "autoindex", token_type::autoindex},
     { "error_pages", token_type::error_pages},
     { "fastcgi", token_type::fastcgi},
-    { "connection_timeout", token_type::connection_timeout},
-    { "read_timeout", token_type::read_timeout},
+    { "fastcgi_timeout_connect", token_type::fastcgi_timeout_connect},
+    { "fastcgi_timeout_read", token_type::fastcgi_timeout_read},
     { "redirect", token_type::redirect}
 };
 
@@ -99,7 +98,6 @@ string get_token_name(token_type type) {
         case token_type::rbrace:                       return "}";
         case token_type::semicolon:                   return ";";
         case token_type::workers:                     return "workers";
-        case token_type::workers_auto:                return "workers_auto";
         case token_type::user:                        return "user";
         case token_type::group:                       return "group";
         case token_type::access_log:                  return "access_log";
@@ -114,7 +112,7 @@ string get_token_name(token_type type) {
         case token_type::max_request_line_size:        return "max_request_line_size";
         case token_type::max_headers:                  return "max_headers";
         case token_type::max_header_size:              return "max_header_size";
-        case token_type::client_body_max_size:         return "client_body_max_size";
+        case token_type::client_max_body_size:         return "client_max_body_size";
         case token_type::max_requests_per_connection:  return "max_requests_per_connection";
         case token_type::keepalive:                    return "keepalive";
         case token_type::sendfile:                     return "sendfile";
@@ -125,8 +123,8 @@ string get_token_name(token_type type) {
         case token_type::timeout_write:                return "timeout_write";
         case token_type::backlog:                      return "backlog";
         case token_type::error_pages:                  return "error_pages";
-        case token_type::connection_timeout:           return "connection_timeout";
-        case token_type::read_timeout:                 return "read_timeout";
+        case token_type::fastcgi_timeout_connect:           return "fastcgi_timeout_connect";
+        case token_type::fastcgi_timeout_read:                 return "fastcgi_timeout_read";
         case token_type::redirect:                     return "redirect";
         case token_type::location:                     return "location";
         case token_type::fastcgi:                      return "fastcgi";

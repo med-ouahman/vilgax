@@ -21,15 +21,15 @@ struct listen_endpoint {
 
 struct fastcgi_config {
    ip_address  addr;
-   timer       connection_timeout;
-   timer       read_timeout;
+   port_number port;
+   timer       fastcgi_timeout_connect;
+   timer       fastcgi_timeout_read;
 };
 
 struct redirect_conf {
    string   location;
    usize    code;
 };
-
 
 struct location_config {
    string path;
@@ -50,6 +50,9 @@ struct server_config {
    std::vector<listen_endpoint>  listens;
    std::vector<location_config>  locations;
    bool                          autoindex;
+   bool                          sendfile;
+   usize                         sendfile_min_size;
+   timer                         keepalive;
 };
 
 struct runtime_config {
@@ -80,6 +83,7 @@ struct global_http_config {
 };
 
 struct timeout_http_config {
+   timer request_line;
    timer headers;
    timer body;
    timer keepalive;
@@ -133,10 +137,11 @@ inline void display_location(std::ostream& out, const location_config& location,
       out << indent << "  FastCGI:\n"
           << indent << "    Address: ";
       display_ip_address(out, fastcgi.addr);
-      out << '\n' << indent << "    Connection timeout: ";
-      display_value(out, fastcgi.connection_timeout);
+        out << ':' << fastcgi.port
+           << '\n' << indent << "    Connection timeout: ";
+      display_value(out, fastcgi.fastcgi_timeout_connect);
       out << '\n' << indent << "    Read timeout: ";
-      display_value(out, fastcgi.read_timeout);
+      display_value(out, fastcgi.fastcgi_timeout_read);
       out << '\n';
    }
 
@@ -172,7 +177,9 @@ inline void display_conf(const main_config& conf, std::ostream& out = std::cout)
        << "\n  Sendfile: " << (http.sendfile ? "on" : "off")
        << "\n  Sendfile minimum size: " << http.sendfile_min_size
        << "\n\nHTTP timeouts:\n"
-       << "  Headers: ";
+         << "  Request line: ";
+      detail::display_value(out, timeouts.request_line);
+      out << "\n  Headers: ";
    detail::display_value(out, timeouts.headers);
    out << "\n  Body: ";
    detail::display_value(out, timeouts.body);
