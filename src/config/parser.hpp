@@ -62,32 +62,17 @@ struct token_not_allowed_error {
     token_type context;
 };
 
-enum class syntax_error_kind {
-    number,
-    boolean,
-    timer
-};
-
 struct syntax_error {
-    syntax_error_kind kind;
+    string message_;
     token_type context;
 
     string message() const {
-        string kind_str;
-        switch (kind) {
-            case syntax_error_kind::number:
-                kind_str = "number";
-                break;
-            case syntax_error_kind::boolean:
-                kind_str = "boolean";
-                break;
-            case syntax_error_kind::timer:
-                kind_str = "timer";
-                break;
-        }
-
-        return "Context: " + get_token_name(context) + ", kind: " + kind_str;
+        return message_ + ", context: " + get_token_name(context);
     }
+
+    syntax_error(const string& msg, token_type ctx)
+        : message_(msg),
+        context(ctx) {}
 };
 
 enum class listen_error_code {
@@ -210,15 +195,6 @@ struct parse_error {
         column(0),
             detail(detail_kind::missing),
             missing_err() {}
-    
-    parse_error(parse_error_code c, syntax_error_kind kind, token_type ctx)
-        : code(c),
-            line(0),
-            column(0),
-            detail(detail_kind::syntax)
-        {
-        syntax_err = { kind, ctx };
-    }
 
     parse_error(parse_error&& other) noexcept
         : code(other.code), line(other.line), column(other.column), detail(other.detail) {

@@ -9,6 +9,17 @@ int main(int, const char** argv) {
 
     core::master master(conf);
     
-    master.start();
+    master 
+    
+    
+    
+    .
+    
+    
+    
+    
+    
+    
+    start();
     return 0;
 }

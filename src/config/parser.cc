@@ -14,6 +14,7 @@ static bool accpets_multiple_values(token_type token) {
         case token_type::server_name:
         case token_type::index:
         case token_type::listen:
+        case token_type::redirect:
             return true;
         default: return false;
     }
@@ -244,7 +245,7 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
             const auto& value = directive.values[0];
             if (value != "on" && value != "off") {
                 return base::unexpected(parse_error(
-                    syntax_error(syntax_error_kind::boolean, directive.type)));
+                    syntax_error("unrecoginzed boolean value, use 'on' or 'off'", directive.type)));
             }
             server.sendfile = value == "on";
             break;
@@ -253,7 +254,7 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
             auto result = base::parse_number<usize>(directive.values[0]);
             if (!result) {
                 return base::unexpected(parse_error(
-                    syntax_error(syntax_error_kind::number, directive.type)));
+                    syntax_error("Invalid number format", directive.type)));
             }
             server.sendfile_min_size = result.value();
             break;
@@ -262,7 +263,7 @@ parser::add_server_directive(server_config& server, const directive_conf& direct
             auto result = base::parse_number<usize>(directive.values[0]);
             if (!result || result.value() > std::numeric_limits<timer>::max()) {
                 return base::unexpected(parse_error(
-                    syntax_error(syntax_error_kind::number, directive.type)));
+                    syntax_error("Invalid number format", directive.type)));
             }
             server.keepalive = static_cast<timer>(result.value());
             break;
@@ -284,7 +285,7 @@ base::expected<void, parse_error> parser::add_global_directive(const directive_c
         auto result = base::parse_number<usize>(conf.values[0]);
         if (!result) {
             return base::unexpected(parse_error(
-                syntax_error(syntax_error_kind::number, conf.type)));
+                syntax_error("Invalid number format", conf.type)));
         }
         return result.value();
     };
@@ -299,14 +300,14 @@ base::expected<void, parse_error> parser::add_global_directive(const directive_c
         }
         
         return base::unexpected(parse_error(
-            syntax_error(syntax_error_kind::boolean, conf.type)));
+            syntax_error("Unrecognized boolean value, use 'on' or 'off'", conf.type)));
     };
 
     auto parse_timer = [&]() -> base::expected<timer, parse_error> {
         auto result = parse_size();
         if (!result || result.value() > std::numeric_limits<timer>::max()) {
             return base::unexpected(parse_error(
-                syntax_error(syntax_error_kind::number, conf.type)));
+                syntax_error("Invalid number format", conf.type)));
         }
         return static_cast<timer>(result.value());
     };
@@ -541,6 +542,7 @@ parser::parse_directive(token_type directive_type) {
     if (value.type_ != token_type::semicolon) {
         return UNEXPECTED_TOKEN_ERROR(token_type::semicolon, value.type_);
     }
+    
     if (count == 0) {
         return UNEXPECTED_TOKEN_ERROR(token_type::identifier, token_type::semicolon);
     }
@@ -550,11 +552,23 @@ parser::parse_directive(token_type directive_type) {
 base::expected<location_config, parse_error>
 parser::parse_location(usize depth) {
     const auto path = expect(token_type::identifier);
-    if (!path)
+    
+    if (!path) {
         return base::unexpected(path.error());
+    }
+
+    const auto& path_str = path.value().value_;
+    
+    if (path_str.size() < 1 || path_str[0] != '/') {
+        return base::unexpected(parse_error(syntax_error("Invalid location name format", token_type::location)));
+    }
+
     const auto brace = expect(token_type::lbrace);
-    if (!brace)
+    
+    if (!brace) {
         return base::unexpected(brace.error());
+    }
+
     location_config location{};
     location.path = path.value().value_;
     while (!eof()) {
@@ -642,7 +656,7 @@ parser::parse_fastcgi() {
                 auto timeout = base::parse_number<usize>(result.value().values[0]);
                 if (!timeout || timeout.value() > std::numeric_limits<timer>::max()) {
                     return base::unexpected(parse_error(
-                        syntax_error(syntax_error_kind::number, current.type_)));
+                        syntax_error("Invalid number format", current.type_)));
                 }
 
                 if (current.type_ == token_type::fastcgi_timeout_connect)

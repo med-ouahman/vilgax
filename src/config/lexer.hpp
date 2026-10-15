@@ -71,7 +71,6 @@ enum known_symbols: char {
     semicolon = ';',
     lbrace = '{',
     rbrace = '}',
-    none = '\0',
 };
 
 enum class lexer_error_code {
@@ -101,8 +100,8 @@ struct token {
     explicit operator bool() { return type_ != token_type::end; }
 };
 
-string get_token_name(token_type type);
-void print_token(const token& token);
+string      get_token_name(token_type type);
+void        print_token(const token& token);
 const char* lexer_error_code_phrase(lexer_error_code code);
 
 class lexer {
